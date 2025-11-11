@@ -1,16 +1,32 @@
 ymaps.ready(init);
 
 var myMap;
-let cargos = [];
 
 function init() {
   myMap = new ymaps.Map("map", {
     center: [55.76, 37.64], // Координаты центра карты (Москва по умолчанию)
     zoom: 10,
   });
+  loadCargos();
 }
 
-function pickCar() {
+const API_URL = "http://127.0.0.1:5000";
+
+async function loadCargos() {
+  try {
+    const response = await fetch(API_URL + "/cargos");
+    const data = await response.json();
+    updateCargoList(data);
+    return data;
+  } catch (error) {
+    alert(`Ошибка при загрузке грузов: ${error.message}`);
+    return [];
+  }
+}
+
+async function pickCar() {
+  const cargos = await loadCargos(); // Get fresh data from API
+
   if (cargos.length === 0) {
     alert("Добавьте хотя бы один груз в список.");
     return;
@@ -50,24 +66,42 @@ function pickCar() {
       }),
   );
 
-  Promise.all(routePromises).then(() => {
-    // Симуляция подбора машины с учетом списка
-    let totalWeight = cargos.reduce((sum, c) => sum + c.weight * c.quantity, 0);
-    let totalQuantity = cargos.reduce((sum, c) => sum + c.quantity, 0);
-    alert(
-      `Маршруты построены для всех грузов. Общий вес: ${totalWeight} кг, Общее количество: ${totalQuantity}. Подбор машины... (Функциональность будет добавлена в будущем)`,
-    );
-  });
+  await Promise.all(routePromises);
+
+  // Подбор машины через бэкенд
+  try {
+    console.log("Sending cargos to match:", cargos);
+    const response = await fetch(`${API_URL}/match`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cargos }),
+    });
+    console.log("Match response status:", response.status);
+    if (!response.ok)
+      throw new Error(`Ошибка подбора машины (status: ${response.status})`);
+    const result = await response.json();
+    console.log("Match result:", result);
+    if (result.vehicle) {
+      alert(
+        `Маршруты построены. Подходящая машина: ${result.vehicle.brand} (${result.vehicle.driver}), ёмкость ${result.vehicle.capacity} кг. Общий вес: ${result.total_weight} кг.`,
+      );
+    } else {
+      alert(result.message || "Нет подходящей машины");
+    }
+  } catch (error) {
+    console.error("Match error:", error);
+    alert(`Ошибка подбора машины: ${error.message || "Неизвестная ошибка"}`);
+  }
 }
 
-function addToList() {
-  let name = document.getElementById("name").value;
-  let weight = parseFloat(document.getElementById("weight").value);
-  let length = parseFloat(document.getElementById("length").value);
-  let width = parseFloat(document.getElementById("width").value);
-  let quantity = parseInt(document.getElementById("quantity").value);
-  let departure = document.getElementById("departure").value;
-  let destination = document.getElementById("destination").value;
+async function addToList() {
+  const name = document.getElementById("name").value;
+  const weight = parseFloat(document.getElementById("weight").value);
+  const length = parseFloat(document.getElementById("length").value);
+  const width = parseFloat(document.getElementById("width").value);
+  const quantity = parseInt(document.getElementById("quantity").value);
+  const departure = document.getElementById("departure").value;
+  const destination = document.getElementById("destination").value;
 
   if (
     !name ||
@@ -82,7 +116,7 @@ function addToList() {
     return;
   }
 
-  cargos.push({
+  const formData = {
     name,
     weight,
     length,
@@ -90,23 +124,33 @@ function addToList() {
     quantity,
     departure,
     destination,
-  });
-  updateCargoList();
+  };
 
-  document.getElementById("name").value = "";
-  document.getElementById("weight").value = "";
-  document.getElementById("length").value = "";
-  document.getElementById("width").value = "";
-  document.getElementById("quantity").value = "";
-  document.getElementById("departure").value = "";
-  document.getElementById("destination").value = "";
+  try {
+    const response = await fetch(`${API_URL}/cargos`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(formData),
+    });
+    if (!response.ok) throw new Error("Ошибка добавления груза");
+    document.getElementById("name").value = "";
+    document.getElementById("weight").value = "";
+    document.getElementById("length").value = "";
+    document.getElementById("width").value = "";
+    document.getElementById("quantity").value = "";
+    document.getElementById("departure").value = "";
+    document.getElementById("destination").value = "";
+    await loadCargos(); // Refresh list
+  } catch (error) {
+    alert(`Ошибка: ${error.message}`);
+  }
 }
 
-function updateCargoList() {
+function updateCargoList(cargos) {
   const tbody = document.getElementById("cargoTable").querySelector("tbody");
   tbody.innerHTML = "";
 
-  cargos.forEach((cargo, index) => {
+  cargos.forEach((cargo) => {
     let row = document.createElement("tr");
     row.innerHTML = `
       <td>${cargo.name}</td>
@@ -116,13 +160,20 @@ function updateCargoList() {
       <td>${cargo.quantity}</td>
       <td>${cargo.departure}</td>
       <td>${cargo.destination}</td>
-      <td><button onclick="removeCargo(${index})">Удалить</button></td>
+      <td><button onclick="removeCargo(${cargo.id})">Удалить</button></td>
     `;
     tbody.appendChild(row);
   });
 }
 
-function removeCargo(index) {
-  cargos.splice(index, 1);
-  updateCargoList();
+async function removeCargo(id) {
+  try {
+    const response = await fetch(`${API_URL}/cargos/${id}`, {
+      method: "DELETE",
+    });
+    if (!response.ok) throw new Error("Ошибка удаления груза");
+    await loadCargos(); // Refresh list
+  } catch (error) {
+    alert(`Ошибка: ${error.message}`);
+  }
 }
