@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="ru">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>SAZ LogicTranway - Подтверждение выбора машины</title>
+        <link rel="stylesheet" href="./style.css" />
+        <style>
+            .confirm-container {
+                max-width: 1200px;
+                margin: 0 auto;
+                padding: 20px;
+            }
+            .selected-vehicle {
+                background-color: #e8f5e9;
+                border: 2px solid #4caf50;
+                border-radius: 8px;
+                padding: 20px;
+                margin-bottom: 30px;
+            }
+            .selected-vehicle h2 {
+                color: #2e7d32;
+                margin-top: 0;
+            }
+            .vehicle-details {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                gap: 15px;
+                margin: 15px 0;
+            }
+            .vehicle-detail-item {
+                padding: 10px;
+                background-color: white;
+                border-radius: 4px;
+            }
+            .vehicle-detail-item strong {
+                color: #555;
+                display: block;
+                margin-bottom: 5px;
+            }
+            .vehicles-list {
+                background-color: #fff;
+                border-radius: 8px;
+                padding: 20px;
+                box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+                margin-bottom: 20px;
+            }
+            .vehicles-table {
+                width: 100%;
+                border-collapse: collapse;
+                margin-top: 15px;
+            }
+            .vehicles-table th,
+            .vehicles-table td {
+                border: 1px solid #ddd;
+                padding: 12px;
+                text-align: left;
+            }
+            .vehicles-table th {
+                background-color: #f2f2f2;
+                font-weight: bold;
+            }
+            .vehicles-table tr:nth-child(even) {
+                background-color: #f9f9f9;
+            }
+            .vehicles-table tr:hover {
+                background-color: #f1f1f1;
+            }
+            .status-badge {
+                padding: 5px 10px;
+                border-radius: 4px;
+                font-weight: bold;
+                display: inline-block;
+            }
+            .status-free {
+                background-color: #c8e6c9;
+                color: #2e7d32;
+            }
+            .status-busy {
+                background-color: #ffcdd2;
+                color: #c62828;
+            }
+            .action-buttons {
+                display: flex;
+                gap: 15px;
+                margin-top: 20px;
+            }
+            .btn-confirm {
+                background-color: #4caf50;
+                color: white;
+                padding: 12px 30px;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 16px;
+                transition: background-color 0.3s;
+            }
+            .btn-confirm:hover {
+                background-color: #45a049;
+            }
+            .btn-cancel {
+                background-color: #f44336;
+                color: white;
+                padding: 12px 30px;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 16px;
+                transition: background-color 0.3s;
+            }
+            .btn-cancel:hover {
+                background-color: #da190b;
+            }
+            .success-message {
+                background-color: #c8e6c9;
+                color: #2e7d32;
+                padding: 15px;
+                border-radius: 4px;
+                margin-bottom: 20px;
+                display: none;
+            }
+            .error-message {
+                background-color: #ffcdd2;
+                color: #c62828;
+                padding: 15px;
+                border-radius: 4px;
+                margin-bottom: 20px;
+                display: none;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="confirm-container">
+            <h1>Подтверждение выбора машины</h1>
+
+            <div class="success-message" id="successMessage"></div>
+            <div class="error-message" id="errorMessage"></div>
+
+            <div class="selected-vehicle" id="selectedVehicle">
+                <h2>Выбранная машина</h2>
+                <div class="vehicle-details" id="vehicleDetails">
+                    <!-- Детали машины загрузятся через JS -->
+                </div>
+            </div>
+
+            <div class="vehicles-list">
+                <h3>Все доступные машины</h3>
+                <table class="vehicles-table" id="vehiclesTable">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Марка</th>
+                            <th>Водитель</th>
+                            <th>Грузоподъёмность (кг)</th>
+                            <th>Статус</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Список машин загрузится через JS -->
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="action-buttons">
+                <button class="btn-confirm" id="confirmBtn" onclick="confirmSelection()">
+                    Подтвердить выбор машины
+                </button>
+                <button class="btn-cancel" onclick="cancelSelection()">
+                    Отменить и вернуться
+                </button>
+            </div>
+        </div>
+
+        <script src="./confirm.js"></script>
+    </body>
+</html>

@@ -116,6 +116,17 @@ def add_vehicle():
     return jsonify(new_vehicle.to_dict()), 201
 
 
+@app.route("/vehicles/<int:id>", methods=["PUT", "PATCH"])
+def update_vehicle_status(id):
+    vehicle = Vehicle.query.get_or_404(id)
+    data = request.get_json()
+    if "status" in data:
+        vehicle.status = data["status"]
+        db.session.commit()
+        return jsonify(vehicle.to_dict()), 200
+    return jsonify({"error": "Status not provided"}), 400
+
+
 # Match (podbor mashiny)
 @app.route("/match", methods=["POST"])
 def match_vehicle():

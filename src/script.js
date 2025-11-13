@@ -82,9 +82,12 @@ async function pickCar() {
     const result = await response.json();
     console.log("Match result:", result);
     if (result.vehicle) {
-      alert(
-        `Маршруты построены. Подходящая машина: ${result.vehicle.brand} (${result.vehicle.driver}), ёмкость ${result.vehicle.capacity} кг. Общий вес: ${result.total_weight} кг.`,
-      );
+      // Сохраняем данные в localStorage и перенаправляем на страницу подтверждения
+      localStorage.setItem("selectedVehicleId", result.vehicle.id);
+      localStorage.setItem("selectedCargos", JSON.stringify(cargos));
+
+      // Перенаправление на страницу подтверждения
+      window.location.href = "confirm.html";
     } else {
       alert(result.message || "Нет подходящей машины");
     }
