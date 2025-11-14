@@ -151,7 +151,10 @@
                             <th>ID</th>
                             <th>Марка</th>
                             <th>Водитель</th>
+                            <th>Гос. номер</th>
                             <th>Грузоподъёмность (кг)</th>
+                            <th>Длина (м)</th>
+                            <th>Ширина (м)</th>
                             <th>Статус</th>
                         </tr>
                     </thead>
@@ -162,7 +165,11 @@
             </div>
 
             <div class="action-buttons">
-                <button class="btn-confirm" id="confirmBtn" onclick="confirmSelection()">
+                <button
+                    class="btn-confirm"
+                    id="confirmBtn"
+                    onclick="confirmSelection()"
+                >
                     Подтвердить выбор машины
                 </button>
                 <button class="btn-cancel" onclick="cancelSelection()">

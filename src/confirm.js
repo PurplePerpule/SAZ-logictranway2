@@ -74,8 +74,20 @@ function displaySelectedVehicle(vehicle) {
             <span>${vehicle.driver}</span>
         </div>
         <div class="vehicle-detail-item">
+            <strong>Гос. номер:</strong>
+            <span>${vehicle.gos_number}</span>
+        </div>
+        <div class="vehicle-detail-item">
             <strong>Грузоподъёмность:</strong>
             <span>${vehicle.capacity} кг</span>
+        </div>
+        <div class="vehicle-detail-item">
+            <strong>Длина кузова:</strong>
+            <span>${vehicle.length} м</span>
+        </div>
+        <div class="vehicle-detail-item">
+            <strong>Ширина кузова:</strong>
+            <span>${vehicle.width} м</span>
         </div>
         <div class="vehicle-detail-item">
             <strong>Текущий статус:</strong>
@@ -108,9 +120,7 @@ async function loadAllVehicles() {
 }
 
 function displayAllVehicles(vehicles) {
-  const tbody = document
-    .getElementById("vehiclesTable")
-    .querySelector("tbody");
+  const tbody = document.getElementById("vehiclesTable").querySelector("tbody");
   tbody.innerHTML = "";
 
   vehicles.forEach((vehicle) => {
@@ -125,7 +135,10 @@ function displayAllVehicles(vehicles) {
             <td>${vehicle.id}</td>
             <td>${vehicle.brand}</td>
             <td>${vehicle.driver}</td>
+            <td>${vehicle.gos_number}</td>
             <td>${vehicle.capacity}</td>
+            <td>${vehicle.length}</td>
+            <td>${vehicle.width}</td>
             <td>
                 <span class="status-badge ${vehicle.status === "free" ? "status-free" : "status-busy"}">
                     ${vehicle.status === "free" ? "Свободна" : "Занята"}

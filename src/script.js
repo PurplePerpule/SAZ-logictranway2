@@ -24,6 +24,85 @@ async function loadCargos() {
   }
 }
 
+// Функция для построения маршрута
+async function buildRoute() {
+  const cargos = await loadCargos(); // Get fresh data from API
+
+  if (cargos.length === 0) {
+    // Если список пуст, очищаем карту
+    myMap.geoObjects.removeAll();
+    return;
+  }
+
+  // Очистка предыдущих объектов на карте
+  myMap.geoObjects.removeAll();
+
+  // Собираем все уникальные точки для построения оптимального маршрута
+  const allPoints = [];
+  const pointsMap = new Map(); // Для отслеживания уникальных точек
+
+  for (const cargo of cargos) {
+    // Добавляем точку отправления
+    if (!pointsMap.has(cargo.departure)) {
+      pointsMap.set(cargo.departure, true);
+      allPoints.push(cargo.departure);
+    }
+    // Добавляем точку назначения
+    if (!pointsMap.has(cargo.destination)) {
+      pointsMap.set(cargo.destination, true);
+      allPoints.push(cargo.destination);
+    }
+  }
+
+  console.log("Building route through points:", allPoints);
+
+  try {
+    // Геокодируем все точки
+    const geocodePromises = allPoints.map((point) => ymaps.geocode(point));
+    const geocodeResults = await Promise.all(geocodePromises);
+
+    // Получаем координаты всех точек
+    const coordinates = geocodeResults.map((result) => {
+      const geoObject = result.geoObjects.get(0);
+      if (!geoObject) {
+        throw new Error("Не удалось найти координаты для одной из точек");
+      }
+      return geoObject.geometry.getCoordinates();
+    });
+
+    console.log("Coordinates for route:", coordinates);
+
+    // Строим единый оптимальный маршрут через все точки
+    const multiRoute = new ymaps.multiRouter.MultiRoute(
+      {
+        referencePoints: coordinates,
+        params: {
+          results: 1,
+          routingMode: "auto", // Автоматический выбор типа маршрута
+        },
+      },
+      {
+        boundsAutoFit: true,
+        wayPointStartIconColor: "#00FF00",
+        wayPointFinishIconColor: "#FF0000",
+        routeActiveStrokeWidth: 6,
+        routeActiveStrokeColor: "#0000FF",
+      },
+    );
+
+    myMap.geoObjects.add(multiRoute);
+
+    // Ждем построения маршрута
+    await new Promise((resolve) => {
+      multiRoute.model.events.once("requestsuccess", resolve);
+    });
+  } catch (error) {
+    console.error("Route building error:", error);
+    alert(`Ошибка при построении маршрута: ${error.message}`);
+    return;
+  }
+}
+
 async function pickCar() {
   const cargos = await loadCargos(); // Get fresh data from API
 
@@ -32,41 +111,8 @@ async function pickCar() {
     return;
   }
 
-  // Очистка предыдущих объектов на карте
-  myMap.geoObjects.removeAll();
-
-  // Построение маршрутов для каждого груза
-  const routePromises = cargos.map((cargo) =>
-    Promise.all([
-      ymaps.geocode(cargo.departure),
-      ymaps.geocode(cargo.destination),
-    ])
-      .then((results) => {
-        const coordsA = results[0].geoObjects.get(0).geometry.getCoordinates();
-        const coordsB = results[1].geoObjects.get(0).geometry.getCoordinates();
-
-        const multiRoute = new ymaps.multiRouter.MultiRoute(
-          {
-            referencePoints: [coordsA, coordsB],
-            params: {
-              results: 1,
-            },
-          },
-          {
-            boundsAutoFit: true,
-          },
-        );
-
-        myMap.geoObjects.add(multiRoute);
-      })
-      .catch((error) => {
-        alert(
-          `Ошибка при геокодировании для груза "${cargo.name}": ${error.message}`,
-        );
-      }),
-  );
-
-  await Promise.all(routePromises);
+  // Маршрут уже построен, просто обновляем его
+  await buildRoute();
 
   // Подбор машины через бэкенд
   try {
@@ -144,6 +190,9 @@ async function addToList() {
     document.getElementById("departure").value = "";
     document.getElementById("destination").value = "";
     await loadCargos(); // Refresh list
+
+    // Прокладываем маршрут сразу после добавления груза
+    await buildRoute();
   } catch (error) {
     alert(`Ошибка: ${error.message}`);
   }
@@ -176,6 +225,9 @@ async function removeCargo(id) {
     });
     if (!response.ok) throw new Error("Ошибка удаления груза");
     await loadCargos(); // Refresh list
+
+    // Перестраиваем маршрут после удаления груза
+    await buildRoute();
   } catch (error) {
     alert(`Ошибка: ${error.message}`);
   }
