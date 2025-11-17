@@ -66,6 +66,10 @@ function displaySelectedVehicle(vehicle) {
 
   detailsContainer.innerHTML = `
         <div class="vehicle-detail-item">
+            <strong>Гаражный номер:</strong>
+            <span>${vehicle.garage_number}</span>
+        </div>
+        <div class="vehicle-detail-item">
             <strong>Марка:</strong>
             <span>${vehicle.brand}</span>
         </div>
@@ -88,6 +92,10 @@ function displaySelectedVehicle(vehicle) {
         <div class="vehicle-detail-item">
             <strong>Ширина кузова:</strong>
             <span>${vehicle.width} м</span>
+        </div>
+        <div class="vehicle-detail-item">
+            <strong>Высота кузова:</strong>
+            <span>${vehicle.height} м</span>
         </div>
         <div class="vehicle-detail-item">
             <strong>Текущий статус:</strong>
@@ -133,12 +141,14 @@ function displayAllVehicles(vehicles) {
 
     row.innerHTML = `
             <td>${vehicle.id}</td>
+            <td>${vehicle.garage_number}</td>
             <td>${vehicle.brand}</td>
             <td>${vehicle.driver}</td>
             <td>${vehicle.gos_number}</td>
             <td>${vehicle.capacity}</td>
             <td>${vehicle.length}</td>
             <td>${vehicle.width}</td>
+            <td>${vehicle.height}</td>
             <td>
                 <span class="status-badge ${vehicle.status === "free" ? "status-free" : "status-busy"}">
                     ${vehicle.status === "free" ? "Свободна" : "Занята"}

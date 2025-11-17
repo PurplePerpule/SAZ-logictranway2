@@ -27,6 +27,7 @@ class Cargo(db.Model):
     quantity = db.Column(db.Integer, nullable=False)
     departure = db.Column(db.String(200), nullable=False)
     destination = db.Column(db.String(200), nullable=False)
+    height = db.Column(db.Float, nullable=False)
 
     def to_dict(self):
         return {
@@ -38,17 +39,20 @@ class Cargo(db.Model):
             "quantity": self.quantity,
             "departure": self.departure,
             "destination": self.destination,
+            "height": self.height,
         }
 
 
 class Vehicle(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    garage_number = db.Column(db.Integer, nullable=False)
     brand = db.Column(db.String(100), nullable=False)
     driver = db.Column(db.String(100), nullable=False)
     gos_number = db.Column(db.String(100), nullable=False)
     capacity = db.Column(db.Float, nullable=False)  # in kg
     length = db.Column(db.Float, nullable=False)  # in meters
     width = db.Column(db.Float, nullable=False)  # in meters
+    height = db.Column(db.Float, nullable=False)  # in meters
     status = db.Column(
         db.String(50), nullable=False, default="free"
     )  # 'free' or 'busy'
@@ -56,12 +60,14 @@ class Vehicle(db.Model):
     def to_dict(self):
         return {
             "id": self.id,
+            "garage_number": self.garage_number,
             "brand": self.brand,
             "driver": self.driver,
             "gos_number": self.gos_number,
             "capacity": self.capacity,
             "length": self.length,
             "width": self.width,
+            "height": self.height,
             "status": self.status,
         }
 
@@ -87,6 +93,7 @@ def add_cargo():
         quantity=data["quantity"],
         departure=data["departure"],
         destination=data["destination"],
+        height=data["height"],
     )
     db.session.add(new_cargo)
     db.session.commit()
@@ -113,11 +120,13 @@ def add_vehicle():
     data = request.get_json()
     new_vehicle = Vehicle(
         brand=data["brand"],
+        garage_number=data["garage_number"],
         driver=data["driver"],
         gos_number=data["gos_number"],
         capacity=data["capacity"],
         length=data["length"],
         width=data["width"],
+        height=data["height"],
         status=data.get("status", "free"),
     )
     db.session.add(new_vehicle)
@@ -151,6 +160,7 @@ def match_vehicle():
     # Find maximum dimensions among all cargos
     max_length = max(cargo["length"] for cargo in cargos)
     max_width = max(cargo["width"] for cargo in cargos)
+    max_height = max(cargo["height"] for cargo in cargos)
 
     # Find a free vehicle with sufficient capacity and dimensions
     suitable_vehicles = (
@@ -159,6 +169,7 @@ def match_vehicle():
             Vehicle.capacity >= total_weight,
             Vehicle.length >= max_length,
             Vehicle.width >= max_width,
+            Vehicle.height >= max_height,
         )
         .order_by(Vehicle.capacity.asc())
         .all()
@@ -173,6 +184,7 @@ def match_vehicle():
                 "total_weight": total_weight,
                 "max_length": max_length,
                 "max_width": max_width,
+                "max_height": max_height,
             }
         )
     else:
@@ -182,6 +194,7 @@ def match_vehicle():
                 "required_capacity": total_weight,
                 "required_length": max_length,
                 "required_width": max_width,
+                "required_height": max_height,
             }
         ), 404
 

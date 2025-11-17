@@ -4,7 +4,7 @@ var myMap;
 
 function init() {
   myMap = new ymaps.Map("map", {
-    center: [55.76, 37.64], // Координаты центра карты (Москва по умолчанию)
+    center: [54.54, 26.38], // Координаты центра карты (Москва по умолчанию)
     zoom: 10,
   });
   loadCargos();
@@ -78,7 +78,7 @@ async function buildRoute() {
         referencePoints: coordinates,
         params: {
           results: 1,
-          routingMode: "auto", // Автоматический выбор типа маршрута
+          routingMode: "auto",
         },
       },
       {
@@ -148,6 +148,7 @@ async function addToList() {
   const weight = parseFloat(document.getElementById("weight").value);
   const length = parseFloat(document.getElementById("length").value);
   const width = parseFloat(document.getElementById("width").value);
+  const height = parseFloat(document.getElementById("height").value);
   const quantity = parseInt(document.getElementById("quantity").value);
   const departure = document.getElementById("departure").value;
   const destination = document.getElementById("destination").value;
@@ -157,6 +158,7 @@ async function addToList() {
     isNaN(weight) ||
     isNaN(length) ||
     isNaN(width) ||
+    isNaN(height) ||
     isNaN(quantity) ||
     !departure ||
     !destination
@@ -170,6 +172,7 @@ async function addToList() {
     weight,
     length,
     width,
+    height,
     quantity,
     departure,
     destination,
@@ -186,6 +189,7 @@ async function addToList() {
     document.getElementById("weight").value = "";
     document.getElementById("length").value = "";
     document.getElementById("width").value = "";
+    document.getElementById("height").value = "";
     document.getElementById("quantity").value = "";
     document.getElementById("departure").value = "";
     document.getElementById("destination").value = "";
@@ -209,6 +213,7 @@ function updateCargoList(cargos) {
       <td>${cargo.weight}</td>
       <td>${cargo.length}</td>
       <td>${cargo.width}</td>
+      <td>${cargo.height}</td>
       <td>${cargo.quantity}</td>
       <td>${cargo.departure}</td>
       <td>${cargo.destination}</td>
