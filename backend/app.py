@@ -1,4 +1,5 @@
 import os
+from itertools import permutations
 
 from flask import Flask, jsonify, request
 from flask_cors import CORS
@@ -149,54 +150,142 @@ def update_vehicle_status(id):
 @app.route("/match", methods=["POST"])
 def match_vehicle():
     data = request.get_json()
-    cargos = data.get("cargos", [])  # List of cargo dicts or IDs
+    cargo_inputs = data.get("cargos", [])
 
-    if not cargos:
+    if not cargo_inputs:
         return jsonify({"message": "No cargos provided"}), 400
 
-    # Calculate total weight
-    total_weight = sum(cargo["weight"] * cargo["quantity"] for cargo in cargos)
+    # Если передали ID грузов — подгрузим из БД
+    cargos = []
+    for item in cargo_inputs:
+        if isinstance(item, int):
+            cargo = Cargo.query.get_or_404(item)
+            cargos.append(cargo)
+        else:
+            cargos.append(item)
 
-    # Find maximum dimensions among all cargos
-    max_length = max(cargo["length"] for cargo in cargos)
-    max_width = max(cargo["width"] for cargo in cargos)
-    max_height = max(cargo["height"] for cargo in cargos)
+    cargo_list = []
+    for c in cargos:
+        if isinstance(c, dict):
+            cargo_list.append(c)
+        else:
+            cargo_list.append(c.to_dict())
 
-    # Find a free vehicle with sufficient capacity and dimensions
-    suitable_vehicles = (
-        Vehicle.query.filter(
-            Vehicle.status == "free",
-            Vehicle.capacity >= total_weight,
-            Vehicle.length >= max_length,
-            Vehicle.width >= max_width,
-            Vehicle.height >= max_height,
-        )
-        .order_by(Vehicle.capacity.asc())
-        .all()
-    )  # Order by capacity ascending for optimal selection
+    if not cargo_list:
+        return jsonify({"message": "No valid cargos"}), 400
 
-    if suitable_vehicles:
-        suitable_vehicle = suitable_vehicles[0]  # Select the smallest suitable vehicle
+    # Общий вес
+    total_weight = sum(c["weight"] * c["quantity"] for c in cargo_list)
+
+    # Максимальные габариты одного груза
+    max_l = max(c["length"] for c in cargo_list)
+    max_w = max(c["width"] for c in cargo_list)
+    max_h_single = max(c["height"] for c in cargo_list)
+
+    # Функция: можно ли уложить все грузы по высоте в данный кузов?
+    def can_stack_in_height(cargos, vehicle_height):
+        heights = sorted([c["height"] * c["quantity"] for c in cargos], reverse=True)
+
+        total_stacked_height = 0
+        for h in heights:
+            if total_stacked_height + h <= vehicle_height:
+                total_stacked_height += h
+            else:
+                if h > vehicle_height:
+                    return False
+                # В реальности можно ставить в несколько рядов по ширине/длине,
+                # но для простоты: если не влез по высоте в один столб — считаем, что нельзя
+                return False
+        return total_stacked_height <= vehicle_height
+
+    # Более точный вариант: попробовать все возможные порядки укладки (для малого количества — ок)
+    def can_fit_by_height_precise(cargos, vehicle_height):
+        items = []
+        for c in cargos:
+            items.extend([c["height"]] * c["quantity"])  # разворачиваем количество
+
+        if not items:
+            return True
+
+        if max(items) > vehicle_height:
+            return False
+        if len(items) > 10:
+            # Для большого количества используем жадный метод
+            return (
+                sum(sorted(items, reverse=True)) <= vehicle_height * 2
+            )  # грубо, но безопасно
+
+        for perm in permutations(items):
+            stack = 0
+            for h in perm:
+                if stack + h > vehicle_height:
+                    break
+                stack += h
+            else:
+                if stack <= vehicle_height:
+                    return True
+        return False
+
+    # Основной поиск подходящей машины
+    suitable_vehicles = Vehicle.query.filter(
+        Vehicle.status == "free",
+        Vehicle.capacity >= total_weight,
+        Vehicle.length >= max_l,
+        Vehicle.width >= max_w,
+    ).all()
+
+    best_vehicle = None
+    min_extra_capacity = float("inf")
+
+    for vehicle in suitable_vehicles:
+        v_height = vehicle.height
+
+        # Вариант 1: без штабелирования (самый строгий)
+        if v_height >= max_h_single:
+            if vehicle.capacity - total_weight < min_extra_capacity:
+                min_extra_capacity = vehicle.capacity - total_weight
+                best_vehicle = vehicle
+            continue  # этот точно подходит
+
+        # Вариант 2: с штабелированием — проверяем, влезет ли по высоте
+        if can_stack_in_height(cargo_list, v_height):
+            if vehicle.capacity - total_weight < min_extra_capacity:
+                min_extra_capacity = vehicle.capacity - total_weight
+                best_vehicle = vehicle
+
+    if best_vehicle:
         return jsonify(
             {
                 "message": "Suitable vehicle found",
-                "vehicle": suitable_vehicle.to_dict(),
+                "vehicle": best_vehicle.to_dict(),
                 "total_weight": total_weight,
-                "max_length": max_length,
-                "max_width": max_width,
-                "max_height": max_height,
+                "required_dimensions": {
+                    "length": max_l,
+                    "width": max_w,
+                    "height_strategy": "stacked"
+                    if best_vehicle.height < max_h_single
+                    else "no_stacking",
+                },
+                "note": "Грузы можно штабелировать по высоте"
+                if best_vehicle.height < max_h_single
+                else "Штабелирование не требуется",
             }
         )
-    else:
-        return jsonify(
-            {
-                "message": "No suitable vehicle found",
-                "required_capacity": total_weight,
-                "required_length": max_length,
-                "required_width": max_width,
-                "required_height": max_height,
-            }
-        ), 404
+
+    return jsonify(
+        {
+            "message": "No suitable vehicle found",
+            "required": {
+                "weight": total_weight,
+                "length": max_l,
+                "width": max_w,
+                "height_single": max_h_single,
+                "height_stacked_estimate": sum(
+                    c["height"] * c["quantity"] for c in cargo_list
+                ),
+            },
+        }
+    ), 404
 
 
 if __name__ == "__main__":
