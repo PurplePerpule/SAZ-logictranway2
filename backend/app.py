@@ -44,6 +44,9 @@ class Cargo(db.Model):
         }
 
 
+# fdfdfg kglf 'dflg' ' df' dfglmdms,dmv,c,x.v/ bbgf
+
+
 class Vehicle(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     garage_number = db.Column(db.Integer, nullable=False)
