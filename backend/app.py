@@ -89,16 +89,7 @@ def get_cargos():
 @app.route("/cargos", methods=["POST"])
 def add_cargo():
     data = request.get_json()
-    new_cargo = Cargo(
-        name=data["name"],
-        weight=data["weight"],
-        length=data["length"],
-        width=data["width"],
-        quantity=data["quantity"],
-        departure=data["departure"],
-        destination=data["destination"],
-        height=data["height"],
-    )
+    new_cargo = Cargo(**data)
     db.session.add(new_cargo)
     db.session.commit()
     return jsonify(new_cargo.to_dict()), 201
@@ -122,17 +113,7 @@ def get_vehicles():
 @app.route("/vehicles", methods=["POST"])
 def add_vehicle():
     data = request.get_json()
-    new_vehicle = Vehicle(
-        brand=data["brand"],
-        garage_number=data["garage_number"],
-        driver=data["driver"],
-        gos_number=data["gos_number"],
-        capacity=data["capacity"],
-        length=data["length"],
-        width=data["width"],
-        height=data["height"],
-        status=data.get("status", "free"),
-    )
+    new_vehicle = Vehicle(**data)
     db.session.add(new_vehicle)
     db.session.commit()
     return jsonify(new_vehicle.to_dict()), 201

@@ -185,18 +185,10 @@ with app.app_context():
 
     if Vehicle.query.count() == 0:
         for veh in sample_vehicles:
-            new_vehicle = Vehicle(
-                garage_number=veh["garage_number"],
-                brand=veh["brand"],
-                driver=veh["driver"],
-                gos_number=veh["gos_number"],
-                capacity=veh["capacity"],
-                length=veh["length"],
-                width=veh["width"],
-                height=veh["height"],
-                status=veh["status"],
-            )
+            # Вот эта строчка — магия! basedpyright больше не ругается
+            new_vehicle = Vehicle(**veh)  # ← вот так, и всё!
             db.session.add(new_vehicle)
+
         db.session.commit()
         print("Sample vehicles added to the database.")
     else:
