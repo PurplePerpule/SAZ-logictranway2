@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="ru">
+    <head>
+        <meta charset="UTF-8" />
+        <title>Админка САЗа</title>
+        <link rel="stylesheet" href="./style.css" />
+    </head>
+    <body>
+        <h1>Диспетчерская САЗа</h1>
+        <nav>
+            <a href="#" onclick="showTab('orders')">Заявки</a>
+            <a href="#" onclick="showTab('vehicles')">Машины</a>
+            <a href="#" onclick="showTab('history')">История рейсов</a>
+        </nav>
+        <a href="#" onclick="exportToExcel()">Экспорт в Excel</a>
+        <div class="stats" id="stats">
+            <div>Ожидают: <span id="pendingCount">0</span></div>
+            <div>В пути: <span id="inTransitCount">0</span></div>
+            <div>Завершено сегодня: <span id="completedToday">0</span></div>
+        </div>
+
+        <div class="filter">
+            <input type="date" id="dateFilter" onchange="loadOrders()" />
+            <input
+                type="text"
+                id="searchFilter"
+                placeholder="Поиск по водителю/номеру"
+                oninput="loadOrders()"
+            />
+        </div>
+
+        <!-- ЗАЯВКИ -->
+        <div id="orders" class="tab active">
+            <h2>Новые и активные заявки</h2>
+            <table id="ordersTable">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Создано</th>
+                        <th>Грузов</th>
+                        <th>Статус</th>
+                        <th>Машина</th>
+                        <th>Действие</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+
+        <!-- МАШИНЫ -->
+        <div id="vehicles" class="tab">
+            <h2>Все машины</h2>
+            <table id="vehiclesTable">
+                <thead>
+                    <tr>
+                        <th>Гараж</th>
+                        <th>Марка</th>
+                        <th>Водитель</th>
+                        <th>Статус</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+
+        <!-- ИСТОРИЯ -->
+        <div id="history" class="tab">
+            <h2>Завершённые рейсы</h2>
+            <table id="historyTable">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Дата</th>
+                        <th>Машина</th>
+                        <th>Грузов</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+        <!-- Модальное окно подбора машины -->
+        <div
+            id="assignModal"
+            style="
+                display: none;
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.5);
+                z-index: 999;
+            "
+        >
+            <div
+                style="
+                    background: white;
+                    margin: 100px auto;
+                    padding: 20px;
+                    width: 500px;
+                    border-radius: 8px;
+                "
+            >
+                <h3>
+                    Подбор машины для заявки #<span id="modalOrderId"></span>
+                </h3>
+                <p>Грузов в заявке: <strong id="modalCargoCount"></strong></p>
+
+                <label>Выберите свободную машину:</label>
+                <select
+                    id="vehicleSelect"
+                    style="width: 100%; padding: 8px; margin: 10px 0"
+                ></select>
+
+                <div style="margin-top: 20px">
+                    <button onclick="suggestVehicle(currentOrderId)">
+                        Подобрать автоматически
+                    </button>
+                    <button class="btn" onclick="assignVehicle()">
+                        Назначить
+                    </button>
+                    <button class="btn" onclick="closeAssignModal()">
+                        Отмена
+                    </button>
+                </div>
+            </div>
+        </div>
+        <script src="admin.js"></script>
+        <script>
+            const token = localStorage.getItem("token");
+            if (!token) {
+                window.location = "login.html";
+            }
+            if (!localStorage.getItem("token")) {
+                const pass = prompt("Пароль диспетчера:");
+                fetch(`${API}/login`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ password: pass }),
+                })
+                    .then((r) => r.json())
+                    .then((d) => {
+                        if (d.token) {
+                            localStorage.setItem("token", d.token);
+                        } else {
+                            alert("Доступ запрещён");
+                            window.location = "index.html";
+                        }
+                    });
+            }
+        </script>
+    </body>
+</html>

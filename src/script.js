@@ -102,6 +102,19 @@ async function buildRoute() {
     return;
   }
 }
+async function sendOrderToDispatcher() {
+  const cargos = await loadCargos();
+  if (cargos.length === 0) return alert("Нет грузов");
+
+  if (confirm(`Отправить заявку с ${cargos.length} грузами диспетчеру?`)) {
+    await fetch(`${API_URL}/orders`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cargos }),
+    });
+    alert("Заявка отправлена!");
+  }
+}
 
 async function pickCar() {
   const cargos = await loadCargos(); // Get fresh data from API

@@ -157,7 +157,7 @@ sample_vehicles = [
         "status": "free",
     },
     {
-        "garage_number": "60",
+        "garage_number": "61",
         "brand": "ГАЗ 2218",
         "driver": "Станкевич И.В.",
         "gos_number": "АB 7878-4",
@@ -168,7 +168,7 @@ sample_vehicles = [
         "status": "free",
     },
     {
-        "garage_number": "60",
+        "garage_number": "62",
         "brand": "МАЗ 543205",
         "driver": "Медовский И.М.",
         "gos_number": "АI 2592-4",
