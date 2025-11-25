@@ -4,6 +4,10 @@
         <meta charset="UTF-8" />
         <title>Админка САЗа</title>
         <link rel="stylesheet" href="./style.css" />
+        <script
+            src="https://api-maps.yandex.ru/2.1/?apikey=28cae7bd-c3b7-4145-94bb-923d2ab7c54e&lang=ru_RU"
+            type="text/javascript"
+        ></script>
     </head>
     <body>
         <h1>Диспетчерская САЗа</h1>
@@ -11,8 +15,9 @@
             <a href="#" onclick="showTab('orders')">Заявки</a>
             <a href="#" onclick="showTab('vehicles')">Машины</a>
             <a href="#" onclick="showTab('history')">История рейсов</a>
+            <a href="#" onclick="showTab('tracking')">Трекинг</a>
         </nav>
-        <a href="#" onclick="exportToExcel()">Экспорт в Excel</a>
+        <button onclick="exportToExcel()">Экспорт в Excel</button>
         <div class="stats" id="stats">
             <div>Ожидают: <span id="pendingCount">0</span></div>
             <div>В пути: <span id="inTransitCount">0</span></div>
@@ -33,11 +38,13 @@
         <div id="orders" class="tab active">
             <h2>Новые и активные заявки</h2>
             <table id="ordersTable">
+                <button onclick="printTTN({order.id})">Печать ТТН</button>
                 <thead>
                     <tr>
                         <th>ID</th>
                         <th>Создано</th>
                         <th>Грузов</th>
+                        <th>Маршрут</th>
                         <th>Статус</th>
                         <th>Машина</th>
                         <th>Действие</th>
@@ -77,6 +84,11 @@
                 </thead>
                 <tbody></tbody>
             </table>
+        </div>
+
+        <div id="tracking" class="tab">
+            <h2>Трекинг рейсов</h2>
+            <div id="map" style="height: 400px; width: 100%"></div>
         </div>
         <!-- Модальное окно подбора машины -->
         <div

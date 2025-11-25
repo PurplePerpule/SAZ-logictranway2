@@ -1,3 +1,4 @@
+// @ts-nocheck
 const API = "http://127.0.0.1:5000";
 
 // ======================== ОБНОВЛЕНИЕ ДАННЫХ ========================
@@ -54,34 +55,6 @@ async function suggestVehicle(orderId) {
   }
 }
 
-async function printTTN(orderId) {
-  const res = await fetch(`${API}/ttn/${orderId}`);
-  const data = await res.json();
-
-  const win = window.open("", "", "height=500, width=800");
-  win.document.write(`
-    <html>
-    <head>
-      <title>ТТН #${data.ttn_number}</title>
-    </head>
-    <body>
-      <h1>ТОВАРНО-ТРАНСПОРТНАЯ НАКЛАДНАЯ #${data.ttn_number}</h1>
-      <p>Дата: ${data.date}</p>
-      <p>Водитель: ${data.driver}</p>
-      <p>Гос. номер: ${data.gos_number}</p>
-      <p>Общий вес: ${data.total_weight} кг</p>
-      <h2>Грузы:</h2>
-      <ul>
-        ${data.cargos.map((c) => `<li>${c.name} — ${c.weight} кг x ${c.quantity}</li>`).join("")}
-      </ul>
-      <img src="qrcode.png" alt="QR-код">  # добавь QR-код через библиотеку Qrious
-    </body>
-    </html>
-  `);
-  win.document.close();
-  win.print();
-}
-
 async function loadVehicles() {
   try {
     const res = await fetch(`${API}/vehicles`, {
@@ -114,6 +87,7 @@ function renderActiveOrders(orders) {
     tr.innerHTML = `
       <td>${order.id}</td>
       <td>${new Date(order.created_at).toLocaleString("ru-RU")}</td>
+      <td>${order.cargos[0]?.departure || "-"} → ${order.cargos[order.cargos.length - 1]?.destination || "-"}</td>
       <td>${order.cargos.length}</td>
       <td>${getStatusText(order.status)}</td>
       <td>${vehicleInfo}</td>
@@ -235,6 +209,24 @@ async function assignVehicle() {
   }
 }
 
+// ======================== ТРЕКИНГ РЕЙСА ========================
+
+ymaps.ready(() => {
+  const myMap = new ymaps.Map("map", { center: [53.9, 27.56], zoom: 10 });
+  async function loadTracking() {
+    const orders = await fetch(`${API}/orders`).then((r) => r.json());
+    const active = orders.filter((o) => o.status === "assigned");
+
+    active.forEach((o) => {
+      const points = o.cargos.flatMap((c) => [c.departure, c.destination]);
+      if (points.length) {
+        ymaps.route(points).then((route) => myMap.geoObjects.add(route));
+      }
+    });
+  }
+  loadTracking();
+});
+
 // ======================== ЗАВЕРШЕНИЕ РЕЙСА ========================
 
 async function completeOrder(orderId) {
@@ -337,6 +329,10 @@ async function suggestVehicle(orderId) {
   }
 }
 
+function printTTN(orderId) {
+  window.open(`${API}/ttn/${orderId}`);
+}
+
 function viewOrderDetails(orderId) {
   fetch(`${API}/orders/${orderId}`)
     .then((r) => r.json())
@@ -362,18 +358,7 @@ ${cargosHtml}`);
 // ======================== АВТО-ОБНОВЛЕНИЕ ========================
 
 async function exportToExcel() {
-  const orders = await fetch(`${API}/orders`).then((r) => r.json());
-  let csv = "ID,Создано,Статус,Машина,Грузов\n";
-  orders.forEach((o) => {
-    const vehicle = o.vehicle ? o.vehicle.gos_number : "-";
-    csv += `${o.id},${new Date(o.created_at).toLocaleString()},${getStatusText(o.status)},${vehicle},${o.cargos.length}\n`;
-  });
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "reyisy.csv";
-  a.click();
+  window.location = `${API}/export_orders`; // Просто скачивает файл
 }
 
 loadOrders();

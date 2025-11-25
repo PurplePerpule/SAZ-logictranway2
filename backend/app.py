@@ -1,7 +1,7 @@
 import os
 from itertools import permutations
 from datetime import datetime, timezone
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_file
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from typing import List
@@ -9,11 +9,15 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity # pyright: ignore[reportMissingImports]
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
+from io import BytesIO
+from openpyxl import Workbook
+from flask import render_template_string  # Для HTML
+import pdfkit  # pyright: ignore[reportMissingImports]
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
-app.config["JWT_SECRET_KEY"] = "your_secret_key_here"  # Замени на случайный ключ (e.g., os.urandom(32))
+app.config["JWT_SECRET_KEY"] = os.urandom(32)  # Замени на случайный ключ (e.g., os.urandom(32))
 jwt = JWTManager(app)
 
 # Configure SQLAlchemy
@@ -97,6 +101,9 @@ class Order(db.Model):
     status: Mapped[str] = mapped_column(default="new")
     vehicle_id: Mapped[int | None] = mapped_column(db.ForeignKey("vehicle.id"), nullable=True)
     note: Mapped[str | None] = mapped_column(db.Text, nullable=True)
+    applicant = db.Column(db.String(100), nullable=False, default="Не указан")  # Новый: заявитель
+    department = db.Column(db.String(100), nullable=False, default="Не указан")  # Новый: отдел
+    phone_number = db.Column(db.String(20), nullable=True)  # Новый: номер телефона
 
     vehicle: Mapped["Vehicle"] = relationship("Vehicle", backref="orders")
     cargos: Mapped[List["Cargo"]] = relationship(
@@ -115,6 +122,9 @@ class Order(db.Model):
             "vehicle": self.vehicle.to_dict() if self.vehicle else None,
             "cargos": [c.to_dict() for c in self.cargos],
             "note": self.note,
+            "applicant": self.applicant,
+            "department": self.department,
+            "phone_number": self.phone_number,
         }
 
 class Trip(db.Model):
@@ -467,6 +477,15 @@ def match_vehicle():
         }
     ), 404
 
+def get_status_text(status):
+    if status == "new":
+        return "Новая"
+    elif status == "assigned":
+        return "Назначена"
+    elif status == "completed":
+        return "Завершена"
+    return status
+
 @app.route("/ttn/<int:order_id>", methods=["GET"])
 def generate_ttn(order_id):
     order = Order.query.get_or_404(order_id)
@@ -479,6 +498,84 @@ def generate_ttn(order_id):
         "total_weight": sum(c.weight * c.quantity for c in order.cargos)
     }
     return jsonify(ttn_data)
+
+
+
+@app.route("/export_orders")
+def export_orders():
+    orders = Order.query.all()
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Рейсы"
+
+    # Заголовки
+    ws.append(["ID", "Создано", "Статус", "Водитель", "Гос. номер", "Грузов", "Общий вес"])
+
+    for o in orders:
+        created = o.created_at.strftime("%d.%m.%Y %H:%M") if o.created_at else "-"
+        status = get_status_text(o.status)  # Используй твою функцию getStatusText из admin.js, или напиши похожую
+        driver = o.vehicle.driver if o.vehicle else "-"
+        gos_number = o.vehicle.gos_number if o.vehicle else "-"
+        cargo_count = len(o.cargos)
+        total_weight = sum(c.weight * c.quantity for c in o.cargos) if o.cargos else 0
+
+        ws.append([o.id, created, status, driver, gos_number, cargo_count, total_weight])
+
+    # Сохраняем в буфер
+    buffer = BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+
+    return send_file(buffer, as_attachment=True, download_name="reyisy.xlsx", mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+@app.route("/ttn/<int:order_id>", methods=["GET"])
+def print_ttn(order_id):
+    order = Order.query.get_or_404(order_id)
+    if not order.vehicle:
+        return jsonify({"error": "Нет машины"}), 400
+
+    total_weight = sum(c.weight * c.quantity for c in order.cargos)
+    cargos_html = "".join([f"<tr><td>{c.name}</td><td>{c.quantity}</td><td>{c.weight * c.quantity}</td></tr>" for c in order.cargos])
+
+    ttn_html = f"""
+    <html>
+    <head>
+      <style>
+        table {{ border-collapse: collapse; width: 100%; }}
+        th, td {{ border: 1px solid black; padding: 8px; }}
+        h1 {{ text-align: center; }}
+      </style>
+    </head>
+    <body>
+      <h1>Товарно-транспортная накладная ТТН-1 № {order.id}</h1>
+      <p>Дата: {datetime.now().strftime('%d.%m.%Y')}</p>
+      <p>Грузоотправитель: ООО "САЗ"</p>
+      <p>Грузополучатель: По адресу назначения</p>
+      <p>Перевозчик: {order.vehicle.driver}, авто {order.vehicle.brand} ({order.vehicle.gos_number})</p>
+      <h2>Товарная часть</h2>
+      <table>
+        <tr><th>Наименование</th><th>Количество</th><th>Вес</th></tr>
+        {cargos_html}
+        <tr><th colspan="2">Итого</th><td>{total_weight} кг</td></tr>
+      </table>
+      <h2>Транспортная часть</h2>
+      <p>Пункт погрузки: {order.cargos[0].departure if order.cargos else '-'} </p>
+      <p>Пункт разгрузки: {order.cargos[-1].destination if order.cargos else '-'} </p>
+      <p>Подпись водителя: ___________________</p>
+      <p>Подпись грузоотправителя: ___________________</p>
+    </body>
+    </html>
+    """
+
+    # Для HTML — верни как текст
+    # return render_template_string(ttn_html)
+
+    # Для PDF (рекомендую)
+    pdf = pdfkit.from_string(ttn_html, False)
+    response = make_response(pdf)
+    response.headers['Content-Type'] = 'application/pdf'
+    response.headers['Content-Disposition'] = f'attachment; filename=ttn_{order.id}.pdf'
+    return response
 
 if __name__ == "__main__":
     with app.app_context():

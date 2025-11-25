@@ -4,7 +4,7 @@ var myMap;
 
 function init() {
   myMap = new ymaps.Map("map", {
-    center: [54.54, 26.38], // Координаты центра карты (Москва по умолчанию)
+    center: [54.54, 26.38],
     zoom: 10,
   });
   loadCargos();
@@ -102,17 +102,29 @@ async function buildRoute() {
     return;
   }
 }
+
 async function sendOrderToDispatcher() {
   const cargos = await loadCargos();
   if (cargos.length === 0) return alert("Нет грузов");
 
   if (confirm(`Отправить заявку с ${cargos.length} грузами диспетчеру?`)) {
-    await fetch(`${API_URL}/orders`, {
+    const res = await fetch(`${API_URL}/orders`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cargos }),
+      body: JSON.stringify({
+        cargos: cargos.map((c) => ({ ...c, id: undefined })),
+      }),
     });
-    alert("Заявка отправлена!");
+    if (res.ok) {
+      alert("Заявка отправлена!");
+      // Очисти список
+      for (const cargo of cargos) {
+        await removeCargo(cargo.id);
+      }
+      loadCargos();
+    } else {
+      alert("Ошибка");
+    }
   }
 }
 
