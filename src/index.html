@@ -5,7 +5,6 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>SAZ LogicTranway - Описание груза</title>
         <link rel="stylesheet" href="./style.css" />
-
         <script
             src="https://api-maps.yandex.ru/2.1/?apikey=28cae7bd-c3b7-4145-94bb-923d2ab7c54e&lang=ru_RU"
             type="text/javascript"
@@ -51,7 +50,42 @@
                     <form id="cargoForm">
                         <div class="form-group">
                             <label for="name">Название:</label>
-                            <input type="text" id="name" name="name" required />
+                            <input
+                                type="text"
+                                id="name"
+                                name="name"
+                                placeholder="Наименование перевозимого груза"
+                                required
+                            />
+                        </div>
+                        <div class="form-group">
+                            <label for="applicant">Заявитель:</label>
+                            <input
+                                type="text"
+                                id="applicant"
+                                name="applicant"
+                                placeholder="Иванов Иван Иванович"
+                                required
+                            />
+                        </div>
+                        <div class="form-group">
+                            <label for="department">Отдел:</label>
+                            <input
+                                type="text"
+                                id="department"
+                                name="department"
+                                placeholder="ОГТ/ОМТС"
+                                required
+                            />
+                        </div>
+                        <div class="form-group">
+                            <label for="phone_number">Номер телефона:</label>
+                            <input
+                                type="text"
+                                id="phone_number"
+                                name="phone_number"
+                                placeholder="+375 (XX) XXX-XX-XX"
+                            />
                         </div>
                         <div class="form-group">
                             <label for="weight">Вес (кг):</label>
@@ -61,6 +95,7 @@
                                 name="weight"
                                 min="0"
                                 step="0.1"
+                                placeholder="Вес одной единицы"
                                 required
                             />
                         </div>
@@ -72,6 +107,7 @@
                                 name="length"
                                 min="0"
                                 step="0.01"
+                                placeholder="Длина груза"
                                 required
                             />
                         </div>
@@ -83,6 +119,7 @@
                                 name="width"
                                 min="0"
                                 step="0.01"
+                                placeholder="Ширина груза"
                                 required
                             />
                         </div>
@@ -94,6 +131,7 @@
                                 name="height"
                                 min="0"
                                 step="0.01"
+                                placeholder="Высота груза"
                                 required
                             />
                         </div>
@@ -104,8 +142,16 @@
                                 id="quantity"
                                 name="quantity"
                                 min="1"
+                                placeholder="Всего единиц груза"
                                 required
                             />
+                        </div>
+                        <div class="form-group">
+                            <label for="tent_type">Тип тента:</label>
+                            <select id="tent_type" name="tent_type">
+                                <option value="closed">Закрытый</option>
+                                <option value="open">Открытый</option>
+                            </select>
                         </div>
                         <div class="form-group">
                             <label for="departure">Точка отправления:</label>
@@ -113,6 +159,7 @@
                                 type="text"
                                 id="departure"
                                 name="departure"
+                                placeholder="Откуда отправляется груз"
                                 required
                             />
                         </div>
@@ -122,6 +169,7 @@
                                 type="text"
                                 id="destination"
                                 name="destination"
+                                placeholder="Точный адрес назначения"
                                 required
                             />
                         </div>

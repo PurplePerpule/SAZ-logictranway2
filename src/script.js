@@ -24,44 +24,29 @@ async function loadCargos() {
   }
 }
 
-// Функция для построения маршрута
 async function buildRoute() {
-  const cargos = await loadCargos(); // Get fresh data from API
-
+  const cargos = await loadCargos();
   if (cargos.length === 0) {
-    // Если список пуст, очищаем карту
     myMap.geoObjects.removeAll();
     return;
   }
-
-  // Очистка предыдущих объектов на карте
   myMap.geoObjects.removeAll();
-
-  // Собираем все уникальные точки для построения оптимального маршрута
   const allPoints = [];
-  const pointsMap = new Map(); // Для отслеживания уникальных точек
-
+  const pointsMap = new Map();
   for (const cargo of cargos) {
-    // Добавляем точку отправления
     if (!pointsMap.has(cargo.departure)) {
       pointsMap.set(cargo.departure, true);
       allPoints.push(cargo.departure);
     }
-    // Добавляем точку назначения
     if (!pointsMap.has(cargo.destination)) {
       pointsMap.set(cargo.destination, true);
       allPoints.push(cargo.destination);
     }
   }
-
   console.log("Building route through points:", allPoints);
-
   try {
-    // Геокодируем все точки
     const geocodePromises = allPoints.map((point) => ymaps.geocode(point));
     const geocodeResults = await Promise.all(geocodePromises);
-
-    // Получаем координаты всех точек
     const coordinates = geocodeResults.map((result) => {
       const geoObject = result.geoObjects.get(0);
       if (!geoObject) {
@@ -69,10 +54,7 @@ async function buildRoute() {
       }
       return geoObject.geometry.getCoordinates();
     });
-
     console.log("Coordinates for route:", coordinates);
-
-    // Строим единый оптимальный маршрут через все точки
     const multiRoute = new ymaps.multiRouter.MultiRoute(
       {
         referencePoints: coordinates,
@@ -89,10 +71,7 @@ async function buildRoute() {
         routeActiveStrokeColor: "#0000FF",
       },
     );
-
     myMap.geoObjects.add(multiRoute);
-
-    // Ждем построения маршрута
     await new Promise((resolve) => {
       multiRoute.model.events.once("requestsuccess", resolve);
     });
@@ -106,22 +85,28 @@ async function buildRoute() {
 async function sendOrderToDispatcher() {
   const cargos = await loadCargos();
   if (cargos.length === 0) return alert("Нет грузов");
-
-  if (confirm(`Отправить заявку с ${cargos.length} грузами диспетчеру?`)) {
+  const applicant = document.getElementById("applicant").value;
+  const department = document.getElementById("department").value;
+  const phone_number = document.getElementById("phone_number").value;
+  const tent_type = document.getElementById("tent_type").value;
+  if (!applicant || !department) return alert("Заполните заявителя и отдел");
+  if (confirm("Отправить заявку?")) {
     const res = await fetch(`${API_URL}/orders`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        cargos: cargos.map((c) => ({ ...c, id: undefined })),
+        cargos,
+        applicant,
+        department,
+        phone_number,
+        tent_type,
       }),
     });
     if (res.ok) {
       alert("Заявка отправлена!");
-      // Очисти список
-      for (const cargo of cargos) {
-        await removeCargo(cargo.id);
-      }
-      loadCargos();
+      document.getElementById("applicant").value = "";
+      document.getElementById("department").value = "";
+      document.getElementById("phone_number").value = "";
     } else {
       alert("Ошибка");
     }
@@ -129,17 +114,12 @@ async function sendOrderToDispatcher() {
 }
 
 async function pickCar() {
-  const cargos = await loadCargos(); // Get fresh data from API
-
+  const cargos = await loadCargos();
   if (cargos.length === 0) {
     alert("Добавьте хотя бы один груз в список.");
     return;
   }
-
-  // Маршрут уже построен, просто обновляем его
   await buildRoute();
-
-  // Подбор машины через бэкенд
   try {
     console.log("Sending cargos to match:", cargos);
     const response = await fetch(`${API_URL}/match`, {
@@ -153,11 +133,8 @@ async function pickCar() {
     const result = await response.json();
     console.log("Match result:", result);
     if (result.vehicle) {
-      // Сохраняем данные в localStorage и перенаправляем на страницу подтверждения
       localStorage.setItem("selectedVehicleId", result.vehicle.id);
       localStorage.setItem("selectedCargos", JSON.stringify(cargos));
-
-      // Перенаправление на страницу подтверждения
       window.location.href = "confirm.html";
     } else {
       alert(result.message || "Нет подходящей машины");
@@ -177,7 +154,6 @@ async function addToList() {
   const quantity = parseInt(document.getElementById("quantity").value);
   const departure = document.getElementById("departure").value;
   const destination = document.getElementById("destination").value;
-
   if (
     !name ||
     isNaN(weight) ||
@@ -191,7 +167,6 @@ async function addToList() {
     alert("Пожалуйста, заполните все поля правильно.");
     return;
   }
-
   const formData = {
     name,
     weight,
@@ -202,7 +177,6 @@ async function addToList() {
     departure,
     destination,
   };
-
   try {
     const response = await fetch(`${API_URL}/cargos`, {
       method: "POST",
@@ -218,9 +192,7 @@ async function addToList() {
     document.getElementById("quantity").value = "";
     document.getElementById("departure").value = "";
     document.getElementById("destination").value = "";
-    await loadCargos(); // Refresh list
-
-    // Прокладываем маршрут сразу после добавления груза
+    await loadCargos();
     await buildRoute();
   } catch (error) {
     alert(`Ошибка: ${error.message}`);
@@ -230,7 +202,6 @@ async function addToList() {
 function updateCargoList(cargos) {
   const tbody = document.getElementById("cargoTable").querySelector("tbody");
   tbody.innerHTML = "";
-
   cargos.forEach((cargo) => {
     let row = document.createElement("tr");
     row.innerHTML = `
@@ -254,9 +225,7 @@ async function removeCargo(id) {
       method: "DELETE",
     });
     if (!response.ok) throw new Error("Ошибка удаления груза");
-    await loadCargos(); // Refresh list
-
-    // Перестраиваем маршрут после удаления груза
+    await loadCargos();
     await buildRoute();
   } catch (error) {
     alert(`Ошибка: ${error.message}`);

@@ -1,8 +1,6 @@
 // @ts-nocheck
 const API = "http://127.0.0.1:5000";
 
-// ======================== ОБНОВЛЕНИЕ ДАННЫХ ========================
-
 async function loadOrders() {
   try {
     const res = await fetch(`${API}/orders`);
@@ -11,7 +9,6 @@ async function loadOrders() {
     const searchFilter = document
       .getElementById("searchFilter")
       .value.toLowerCase();
-
     const filtered = orders.filter((o) => {
       const dateMatch = !dateFilter || o.created_at.includes(dateFilter);
       const searchMatch =
@@ -20,13 +17,10 @@ async function loadOrders() {
         o.vehicle?.gos_number.toLowerCase().includes(searchFilter);
       return dateMatch && searchMatch;
     });
-
     const active = filtered.filter((o) => o.status !== "completed");
     const completed = filtered.filter((o) => o.status === "completed");
-
     renderActiveOrders(active);
     renderHistory(completed);
-
     // Статистика
     document.getElementById("pendingCount").textContent = active.filter(
       (o) => o.status === "new",
@@ -70,20 +64,15 @@ async function loadVehicles() {
   }
 }
 
-// ======================== ОТРИСОВКА ТАБЛИЦ ========================
-
 function renderActiveOrders(orders) {
   const tbody = document.querySelector("#ordersTable tbody");
   tbody.innerHTML = "";
-
   orders.forEach((order) => {
     const tr = document.createElement("tr");
     tr.className = `status-${order.status}`;
-
     const vehicleInfo = order.vehicle
       ? `${order.vehicle.garage_number} — ${order.vehicle.brand} (${order.vehicle.driver})`
       : "—";
-
     tr.innerHTML = `
       <td>${order.id}</td>
       <td>${new Date(order.created_at).toLocaleString("ru-RU")}</td>
@@ -91,17 +80,13 @@ function renderActiveOrders(orders) {
       <td>${order.cargos.length}</td>
       <td>${getStatusText(order.status)}</td>
       <td>${vehicleInfo}</td>
+      <td>${order.applicant || "-"}</td>
+      <td>${order.department || "-"}</td>
+      <td>${order.phone_number || "-"}</td>
+      <td>${order.tent_type === "open" ? "Открытый" : "Закрытый"}</td>
       <td>
-        ${
-          order.status === "new"
-            ? `<button class="btn" onclick="openAssignModal(${order.id})">Подобрать машину</button>`
-            : ""
-        }
-        ${
-          order.status === "assigned"
-            ? `<button class="btn" onclick="completeOrder(${order.id})">Завершить рейс</button>`
-            : ""
-        }
+        ${order.status === "new" ? `<button class="btn" onclick="openAssignModal(${order.id})">Подобрать машину</button>` : ""}
+        ${order.status === "assigned" ? `<button class="btn" onclick="completeOrder(${order.id})">Завершить рейс</button>` : ""}
         <button class="btn" onclick="viewOrderDetails(${order.id})">Подробно</button>
       </td>
     `;
@@ -112,13 +97,13 @@ function renderActiveOrders(orders) {
 function renderVehicles(vehicles) {
   const tbody = document.querySelector("#vehiclesTable tbody");
   tbody.innerHTML = "";
-
   vehicles.forEach((v) => {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${v.garage_number}</td>
       <td>${v.brand}</td>
       <td>${v.driver}</td>
+      <td>${v.tent_type === "open" ? "Открытый" : "Закрытый"}</td>
       <td><span class="status-badge ${v.status === "free" ? "status-free" : "status-busy"}">
         ${v.status === "free" ? "Свободна" : "Занята"}
       </span></td>
@@ -130,12 +115,10 @@ function renderVehicles(vehicles) {
 function renderHistory(orders) {
   const tbody = document.querySelector("#historyTable tbody");
   tbody.innerHTML = "";
-
   orders.forEach((order) => {
     const vehicle = order.vehicle
       ? `${order.vehicle.garage_number} — ${order.vehicle.brand}`
       : "—";
-
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${order.id}</td>
@@ -147,8 +130,6 @@ function renderHistory(orders) {
   });
 }
 
-// ======================== МОДАЛЬНОЕ ОКНО ДЛЯ ПОДБОРА МАШИНЫ ========================
-
 let currentOrderId = null;
 
 function openAssignModal(orderId) {
@@ -159,8 +140,6 @@ function openAssignModal(orderId) {
       document.getElementById("modalOrderId").textContent = order.id;
       document.getElementById("modalCargoCount").textContent =
         order.cargos.length;
-
-      // Подгружаем свободные машины
       fetch(`${API}/vehicles`)
         .then((r) => r.json())
         .then((vehicles) => {
@@ -175,7 +154,6 @@ function openAssignModal(orderId) {
           });
         });
     });
-
   document.getElementById("assignModal").style.display = "block";
 }
 
@@ -187,14 +165,12 @@ function closeAssignModal() {
 async function assignVehicle() {
   const vehicleId = document.getElementById("vehicleSelect").value;
   if (!vehicleId || !currentOrderId) return alert("Выберите машину");
-
   try {
     const res = await fetch(`${API}/orders/${currentOrderId}/assign`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ vehicle_id: parseInt(vehicleId) }),
     });
-
     if (res.ok) {
       alert("Машина успешно назначена!");
       closeAssignModal();
@@ -209,14 +185,11 @@ async function assignVehicle() {
   }
 }
 
-// ======================== ТРЕКИНГ РЕЙСА ========================
-
 ymaps.ready(() => {
   const myMap = new ymaps.Map("map", { center: [53.9, 27.56], zoom: 10 });
   async function loadTracking() {
     const orders = await fetch(`${API}/orders`).then((r) => r.json());
     const active = orders.filter((o) => o.status === "assigned");
-
     active.forEach((o) => {
       const points = o.cargos.flatMap((c) => [c.departure, c.destination]);
       if (points.length) {
@@ -227,16 +200,12 @@ ymaps.ready(() => {
   loadTracking();
 });
 
-// ======================== ЗАВЕРШЕНИЕ РЕЙСА ========================
-
 async function completeOrder(orderId) {
   if (!confirm("Завершить рейс и освободить машину?")) return;
-
   try {
     const res = await fetch(`${API}/orders/${orderId}/complete`, {
       method: "POST",
     });
-
     if (res.ok) {
       alert("Рейс завершён, машина освобождена");
       loadOrders();
@@ -247,8 +216,6 @@ async function completeOrder(orderId) {
   }
 }
 
-// ======================== ПОДРОБНОСТИ ЗАЯВКИ ========================
-
 function viewOrderDetails(orderId) {
   fetch(`${API}/orders/${orderId}`)
     .then((r) => r.json())
@@ -257,29 +224,16 @@ function viewOrderDetails(orderId) {
       order.cargos.forEach((c) => {
         cargosHtml += `<li>${c.name} — ${c.weight}кг ×${c.quantity}, ${c.length}×${c.width}×${c.height}м, ${c.departure} → ${c.destination}</li>`;
       });
-
       const vehicle = order.vehicle
         ? `${order.vehicle.garage_number} — ${order.vehicle.brand} (${order.vehicle.driver})`
         : "Не назначена";
-
       alert(
-        `
-ЗАЯВКА #${order.id}
-Создано: ${new Date(order.created_at).toLocaleString("ru-RU")}
-Статус: ${getStatusText(order.status)}
-Машина: ${vehicle}
-
-Грузы:
-${cargosHtml}
-      `.trim(),
+        `ЗАЯВКА #${order.id}\nСоздано: ${new Date(order.created_at).toLocaleString("ru-RU")}\nСтатус: ${getStatusText(order.status)}\nМашина: ${vehicle}\nГрузы:\n${cargosHtml}`.trim(),
       );
     });
 }
 
-// ======================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ========================
-
 let lastNewCount = 0;
-
 setInterval(() => {
   fetch(`${API}/orders`)
     .then((r) => r.json())
@@ -305,60 +259,20 @@ function getStatusText(status) {
   }
 }
 
-// ======================== ТАБЫ ========================
-
 function showTab(tabId) {
   document
     .querySelectorAll(".tab")
     .forEach((t) => t.classList.remove("active"));
   document.getElementById(tabId).classList.add("active");
-
   if (tabId === "vehicles") loadVehicles();
-}
-
-async function suggestVehicle(orderId) {
-  try {
-    const res = await fetch(`${API}/suggest_vehicle/${orderId}`);
-    if (!res.ok) throw new Error("Не найдено");
-
-    const vehicle = await res.json();
-    alert(`Рекомендованная машина: ${vehicle.gos_number} (${vehicle.driver})`);
-    document.getElementById("vehicleSelect").value = vehicle.id;
-  } catch (e) {
-    alert("Подходящая машина не найдена");
-  }
 }
 
 function printTTN(orderId) {
   window.open(`${API}/ttn/${orderId}`);
 }
 
-function viewOrderDetails(orderId) {
-  fetch(`${API}/orders/${orderId}`)
-    .then((r) => r.json())
-    .then((order) => {
-      let cargosHtml = order.cargos
-        .map(
-          (c) =>
-            `<li>${c.name} — ${c.weight}кг ×${c.quantity}, ${c.length}×${c.width}×${c.height}м, ${c.departure} → ${c.destination}</li>`,
-        )
-        .join("");
-      let vehicle = order.vehicle
-        ? `${order.vehicle.gos_number} (${order.vehicle.driver})`
-        : "Не назначена";
-
-      alert(`ЗАЯВКА #${order.id}
-Статус: ${getStatusText(order.status)}
-Машина: ${vehicle}
-Грузы:
-${cargosHtml}`);
-    });
-}
-
-// ======================== АВТО-ОБНОВЛЕНИЕ ========================
-
 async function exportToExcel() {
-  window.location = `${API}/export_orders`; // Просто скачивает файл
+  window.location = `${API}/export_orders`;
 }
 
 loadOrders();
