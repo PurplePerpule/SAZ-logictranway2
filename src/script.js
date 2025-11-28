@@ -13,26 +13,25 @@ function init() {
 const API_URL = "http://127.0.0.1:5000";
 
 async function loadCargos() {
-  try {
-    const response = await fetch(API_URL + "/cargos");
-    const data = await response.json();
-    updateCargoList(data);
-    return data;
-  } catch (error) {
-    alert(`Ошибка при загрузке грузов: ${error.message}`);
-    return [];
-  }
+  const res = await fetch(`${API_URL}/draft_cargos`);
+  const data = await res.json();
+  updateCargoList(data);
+  buildRoute(data); // передаём
+  return data;
 }
 
-async function buildRoute() {
-  const cargos = await loadCargos();
-  if (cargos.length === 0) {
+async function buildRoute(cargos) {
+  // ← принимаем, не грузим снова
+  if (!cargos || cargos.length === 0) {
     myMap.geoObjects.removeAll();
     return;
   }
+
   myMap.geoObjects.removeAll();
+
   const allPoints = [];
   const pointsMap = new Map();
+
   for (const cargo of cargos) {
     if (!pointsMap.has(cargo.departure)) {
       pointsMap.set(cargo.departure, true);
@@ -84,32 +83,50 @@ async function buildRoute() {
 
 async function sendOrderToDispatcher() {
   const cargos = await loadCargos();
-  if (cargos.length === 0) return alert("Нет грузов");
-  const applicant = document.getElementById("applicant").value;
-  const department = document.getElementById("department").value;
-  const phone_number = document.getElementById("phone_number").value;
+  if (cargos.length === 0) {
+    return alert("Добавьте хотя бы один груз в список!");
+  }
+
+  const applicant = document.getElementById("applicant").value.trim();
+  const department = document.getElementById("department").value.trim();
+  const phone_number = document.getElementById("phone_number").value.trim();
   const tent_type = document.getElementById("tent_type").value;
-  if (!applicant || !department) return alert("Заполните заявителя и отдел");
-  if (confirm("Отправить заявку?")) {
+
+  if (!applicant) {
+    return alert("Укажите ФИО заявителя!");
+  }
+  if (!department) {
+    return alert("Укажите отдел!");
+  }
+
+  if (!confirm("Отправить заявку диспетчеру?")) return;
+
+  try {
     const res = await fetch(`${API_URL}/orders`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        cargos,
         applicant,
         department,
-        phone_number,
+        phone_number: phone_number || null,
         tent_type,
       }),
     });
+
     if (res.ok) {
-      alert("Заявка отправлена!");
+      alert("Заявка успешно отправлена диспетчеру!");
+      document.getElementById("cargoForm").reset();
       document.getElementById("applicant").value = "";
       document.getElementById("department").value = "";
       document.getElementById("phone_number").value = "";
+      myMap.geoObjects.removeAll();
+      updateCargoList([]);
     } else {
-      alert("Ошибка");
+      const err = await res.json();
+      alert("Ошибка: " + (err.error || "сервер не отвечает"));
     }
+  } catch (err) {
+    alert("Нет связи с сервером");
   }
 }
 
@@ -146,57 +163,45 @@ async function pickCar() {
 }
 
 async function addToList() {
-  const name = document.getElementById("name").value;
-  const weight = parseFloat(document.getElementById("weight").value);
-  const length = parseFloat(document.getElementById("length").value);
-  const width = parseFloat(document.getElementById("width").value);
-  const height = parseFloat(document.getElementById("height").value);
-  const quantity = parseInt(document.getElementById("quantity").value);
-  const departure = document.getElementById("departure").value;
-  const destination = document.getElementById("destination").value;
-  if (
-    !name ||
-    isNaN(weight) ||
-    isNaN(length) ||
-    isNaN(width) ||
-    isNaN(height) ||
-    isNaN(quantity) ||
-    !departure ||
-    !destination
-  ) {
-    alert("Пожалуйста, заполните все поля правильно.");
-    return;
-  }
   const formData = {
+    name: document.getElementById("name").value,
+    weight: parseFloat(document.getElementById("weight").value),
+    length: parseFloat(document.getElementById("length").value),
+    width: parseFloat(document.getElementById("width").value),
+    height: parseFloat(document.getElementById("height").value),
+    quantity: parseInt(document.getElementById("quantity").value),
+    departure: document.getElementById("departure").value,
+    destination: document.getElementById("destination").value,
+  };
+
+  // 💠 корректная проверка
+  const {
     name,
+    departure,
+    destination,
     weight,
     length,
     width,
     height,
     quantity,
-    departure,
-    destination,
-  };
-  try {
-    const response = await fetch(`${API_URL}/cargos`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(formData),
-    });
-    if (!response.ok) throw new Error("Ошибка добавления груза");
-    document.getElementById("name").value = "";
-    document.getElementById("weight").value = "";
-    document.getElementById("length").value = "";
-    document.getElementById("width").value = "";
-    document.getElementById("height").value = "";
-    document.getElementById("quantity").value = "";
-    document.getElementById("departure").value = "";
-    document.getElementById("destination").value = "";
-    await loadCargos();
-    await buildRoute();
-  } catch (error) {
-    alert(`Ошибка: ${error.message}`);
+  } = formData;
+
+  if (!name || !departure || !destination) {
+    return alert("Введите название груза, пункт отправки и пункт назначения");
   }
+
+  if ([weight, length, width, height, quantity].some((v) => isNaN(v))) {
+    return alert("Числовые поля заполнены неверно");
+  }
+
+  await fetch(`${API_URL}/draft_cargos`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(formData),
+  });
+
+  document.getElementById("cargoForm").reset();
+  loadCargos();
 }
 
 function updateCargoList(cargos) {
@@ -220,14 +225,6 @@ function updateCargoList(cargos) {
 }
 
 async function removeCargo(id) {
-  try {
-    const response = await fetch(`${API_URL}/cargos/${id}`, {
-      method: "DELETE",
-    });
-    if (!response.ok) throw new Error("Ошибка удаления груза");
-    await loadCargos();
-    await buildRoute();
-  } catch (error) {
-    alert(`Ошибка: ${error.message}`);
-  }
+  await fetch(`${API_URL}/draft_cargos/${id}`, { method: "DELETE" });
+  loadCargos();
 }

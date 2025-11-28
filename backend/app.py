@@ -9,7 +9,9 @@ from flask_jwt_extended import JWTManager, create_access_token, jwt_required, ge
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 from io import BytesIO
-from openpyxl import Workbook
+from openpyxl.workbook.workbook import Workbook
+from openpyxl.worksheet.worksheet import Worksheet
+
 import pdfkit
 import os
 
@@ -53,6 +55,34 @@ class Cargo(db.Model):
             "destination": self.destination,
             "height": self.height,
         }
+
+class DraftCargo(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    weight = db.Column(db.Float, nullable=False)
+    length = db.Column(db.Float, nullable=False)
+    width = db.Column(db.Float, nullable=False)
+    height = db.Column(db.Float, nullable=False)
+    quantity = db.Column(db.Integer, nullable=False)
+    departure = db.Column(db.String(200), nullable=False)
+    destination = db.Column(db.String(200), nullable=False)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "name": self.name,
+            "weight": self.weight,
+            "length": self.length,
+            "width": self.width,
+            "height": self.height,
+            "quantity": self.quantity,
+            "departure": self.departure,
+            "destination": self.destination,
+        }
+
+
+
+
 
 class Vehicle(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -165,25 +195,30 @@ def login():
     token = create_access_token(identity={"username": user.username, "role": user.role})
     return jsonify({"token": token, "role": user.role})
 
-@app.route("/cargos", methods=["GET"])
-def get_cargos():
-    cargos = Cargo.query.all()
-    return jsonify([cargo.to_dict() for cargo in cargos])
 
-@app.route("/cargos", methods=["POST"])
-def add_cargo():
-    data = request.get_json()
-    new_cargo = Cargo(**data)
-    db.session.add(new_cargo)
-    db.session.commit()
-    return jsonify(new_cargo.to_dict()), 201
 
-@app.route("/cargos/<int:id>", methods=["DELETE"])
-def delete_cargo(id):
-    cargo = Cargo.query.get_or_404(id)
-    db.session.delete(cargo)
-    db.session.commit()
-    return jsonify({"message": "Cargo deleted"}), 200
+#@app.route("/cargos", methods=["GET"])
+#def get_cargos():
+#    cargos = Cargo.query.all()
+#    return jsonify([cargo.to_dict() for cargo in cargos])
+
+
+#@app.route("/cargos", methods=["POST"])
+#def add_cargo():
+#    data = request.get_json()
+#    new_cargo = Cargo(**data)
+#    db.session.add(new_cargo)
+#    db.session.commit()
+#    return jsonify(new_cargo.to_dict()), 201
+
+#@app.route("/cargos/<int:id>", methods=["DELETE"])
+#def delete_cargo(id):
+#    cargo = Cargo.query.get_or_404(id)
+#    db.session.delete(cargo)
+#    db.session.commit()
+#    return jsonify({"message": "Cargo deleted"}), 200
+
+
 
 @app.route("/vehicles", methods=["GET"])
 def get_vehicles():
@@ -221,24 +256,72 @@ def get_order_by_id(order_id):
 @app.route("/orders", methods=["POST"])
 def add_order():
     data = request.get_json()
-    cargos_data = data.get("cargos", [])
+
+    # Берём данные заявителя
+    applicant = data.get("applicant", "Не указан")
+    department = data.get("department", "Не указан")
+    phone_number = data.get("phone_number")
+    tent_type = data.get("tent_type", "closed")
+
+    # Создаём заявку
     order = Order(
-        applicant=data.get("applicant", "Не указан"),
-        department=data.get("department", "Не указан"),
-        phone_number=data.get("phone_number"),
-        tent_type=data.get("tent_type", "closed"),
+        applicant=applicant,
+        department=department,
+        phone_number=phone_number,
+        tent_type=tent_type,
         status="new"
     )
     db.session.add(order)
-    db.session.flush()
-    for c_data in cargos_data:
-        c_data.pop("id", None)
-        cargo = Cargo(**c_data)
+    db.session.flush()  # Чтобы получить order.id
+
+    # Копируем ВСЕ грузы из черновика в заявку
+    draft_cargos = DraftCargo.query.all()
+    for draft in draft_cargos:
+        cargo = Cargo(
+            name=draft.name,
+            weight=draft.weight,
+            length=draft.length,
+            width=draft.width,
+            height=draft.height,
+            quantity=draft.quantity,
+            departure=draft.departure,
+            destination=draft.destination,
+        )
         db.session.add(cargo)
         db.session.flush()
         order.cargos.append(cargo)
+
+    # ОЧИЩАЕМ ЧЕРНОВИК
+    DraftCargo.query.delete()
+
     db.session.commit()
     return jsonify(order.to_dict()), 201
+
+@app.route("/draft_cargos", methods=["GET"])
+def get_draft_cargos():
+    cargos = DraftCargo.query.all()
+    return jsonify([c.to_dict() for c in cargos])
+
+@app.route("/draft_cargos", methods=["POST"])
+def add_draft_cargo():
+    data = request.get_json()
+    cargo = DraftCargo(**data)
+    db.session.add(cargo)
+    db.session.commit()
+    return jsonify(cargo.to_dict()), 201
+
+@app.route("/draft_cargos/<int:id>", methods=["DELETE"])
+def delete_draft_cargo(id):
+    cargo = DraftCargo.query.get_or_404(id)
+    db.session.delete(cargo)
+    db.session.commit()
+    return jsonify({"message": "Удалено"})
+
+@app.route("/draft_cargos/clear", methods=["DELETE"])
+def clear_draft_cargos():
+    DraftCargo.query.delete()
+    db.session.commit()
+    return jsonify({"message": "Черновик очищен"})
 
 @app.route("/orders/<int:id>/assign", methods=["POST"])
 def assign_vehicle(id):
@@ -402,8 +485,8 @@ def get_status_text(status):
 @app.route("/export_orders")
 def export_orders():
     orders = Order.query.all()
-    wb = Workbook()
-    ws = wb.active
+    wb: Workbook = Workbook()
+    ws: Worksheet = wb.active or wb.create_sheet("Рейсы")
     ws.title = "Рейсы"
     ws.append(["ID", "Создано", "Статус", "Водитель", "Гос. номер", "Грузов", "Общий вес"])
     for o in orders:
