@@ -174,7 +174,6 @@ async function addToList() {
     destination: document.getElementById("destination").value,
   };
 
-  // 💠 корректная проверка
   const {
     name,
     departure,

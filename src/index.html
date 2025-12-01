@@ -22,176 +22,191 @@
     </head>
     <body>
         <div class="container">
-            <div class="list-section">
-                <div id="cargoList">
-                    <h3>Список грузов</h3>
-                    <table id="cargoTable">
-                        <thead>
-                            <tr>
-                                <th>Название</th>
-                                <th>Вес (кг)</th>
-                                <th>Длина (м)</th>
-                                <th>Ширина (м)</th>
-                                <th>Высота (м)</th>
-                                <th>Количество</th>
-                                <th>Точка отправления</th>
-                                <th>Точка назначения</th>
-                                <th>Действия</th>
-                            </tr>
-                        </thead>
-                        <tbody></tbody>
-                    </table>
+            <!-- БЛОК ЗАЯВИТЕЛЯ (всегда сверху, не очищается) -->
+            <div
+                class="applicant-section"
+                style="
+                    background: #f8f9fa;
+                    padding: 20px;
+                    border-radius: 10px;
+                    margin-bottom: 20px;
+                    border: 2px solid #007bff;
+                "
+            >
+                <h2 style="color: #007bff; margin-top: 0">Данные заявителя</h2>
+                <div class="form-group">
+                    <label>Заявитель <span style="color: red">*</span></label>
+                    <input
+                        type="text"
+                        id="applicant"
+                        placeholder="Иванов И.И."
+                        required
+                        style="width: 100%; padding: 10px; font-size: 16px"
+                    />
+                </div>
+                <div class="form-group">
+                    <label>Отдел <span style="color: red">*</span></label>
+                    <input
+                        type="text"
+                        id="department"
+                        placeholder="ОГТ / ОМТС / Цех №5"
+                        required
+                        style="width: 100%; padding: 10px; font-size: 16px"
+                    />
+                </div>
+                <div class="form-group">
+                    <label>Телефон</label>
+                    <input
+                        type="text"
+                        id="phone_number"
+                        placeholder="+375 (29) 123-45-67"
+                        style="width: 100%; padding: 10px; font-size: 16px"
+                    />
+                </div>
+                <div class="form-group">
+                    <label>Тип тента</label>
+                    <select
+                        id="tent_type"
+                        style="width: 100%; padding: 10px; font-size: 16px"
+                    >
+                        <option value="closed">Закрытый (тент)</option>
+                        <option value="open">Открытый (бортовой)</option>
+                    </select>
                 </div>
             </div>
 
-            <div class="right-section">
-                <div class="form-section">
-                    <h1>Описание объекта для перевозки</h1>
-                    <form id="cargoForm">
+            <!-- БЛОК ДОБАВЛЕНИЯ ГРУЗА -->
+            <div class="cargo-form-section">
+                <h2>Добавить груз в заявку</h2>
+                <form id="cargoForm">
+                    <div class="form-group">
+                        <label>Наименование груза</label>
+                        <input type="text" id="name" required />
+                    </div>
+                    <div
+                        style="
+                            display: grid;
+                            grid-template-columns: 1fr 1fr 1fr 1fr;
+                            gap: 10px;
+                        "
+                    >
                         <div class="form-group">
-                            <label for="name">Название:</label>
-                            <input
-                                type="text"
-                                id="name"
-                                name="name"
-                                placeholder="Наименование перевозимого груза"
-                                required
-                            />
-                        </div>
-                        <div class="form-group">
-                            <label for="applicant">Заявитель:</label>
-                            <input
-                                type="text"
-                                id="applicant"
-                                name="applicant"
-                                placeholder="Иванов Иван Иванович"
-                                required
-                            />
-                        </div>
-                        <div class="form-group">
-                            <label for="department">Отдел:</label>
-                            <input
-                                type="text"
-                                id="department"
-                                name="department"
-                                placeholder="ОГТ/ОМТС"
-                                required
-                            />
-                        </div>
-                        <div class="form-group">
-                            <label for="phone_number">Номер телефона:</label>
-                            <input
-                                type="text"
-                                id="phone_number"
-                                name="phone_number"
-                                placeholder="+375 (XX) XXX-XX-XX"
-                            />
-                        </div>
-                        <div class="form-group">
-                            <label for="weight">Вес (кг):</label>
+                            <label>Вес (кг)</label>
                             <input
                                 type="number"
-                                id="weight"
-                                name="weight"
-                                min="0"
                                 step="0.1"
-                                placeholder="Вес одной единицы"
+                                id="weight"
                                 required
                             />
                         </div>
                         <div class="form-group">
-                            <label for="length">Длина (м):</label>
+                            <label>Длина (м)</label>
                             <input
                                 type="number"
+                                step="0.01"
                                 id="length"
-                                name="length"
-                                min="0"
-                                step="0.01"
-                                placeholder="Длина груза"
                                 required
                             />
                         </div>
                         <div class="form-group">
-                            <label for="width">Ширина (м):</label>
+                            <label>Ширина (м)</label>
                             <input
                                 type="number"
+                                step="0.01"
                                 id="width"
-                                name="width"
-                                min="0"
-                                step="0.01"
-                                placeholder="Ширина груза"
                                 required
                             />
                         </div>
                         <div class="form-group">
-                            <label for="height">Высота (м):</label>
+                            <label>Высота (м)</label>
                             <input
                                 type="number"
+                                step="0.01"
                                 id="height"
-                                name="height"
-                                min="0"
-                                step="0.01"
-                                placeholder="Высота груза"
                                 required
                             />
                         </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Количество мест</label>
+                        <input
+                            type="number"
+                            min="1"
+                            id="quantity"
+                            value="1"
+                            required
+                        />
+                    </div>
+                    <div
+                        style="
+                            display: grid;
+                            grid-template-columns: 1fr 1fr;
+                            gap: 10px;
+                        "
+                    >
                         <div class="form-group">
-                            <label for="quantity">Количество:</label>
-                            <input
-                                type="number"
-                                id="quantity"
-                                name="quantity"
-                                min="1"
-                                placeholder="Всего единиц груза"
-                                required
-                            />
-                        </div>
-                        <div class="form-group">
-                            <label for="tent_type">Тип тента:</label>
-                            <select id="tent_type" name="tent_type">
-                                <option value="closed">Закрытый</option>
-                                <option value="open">Открытый</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label for="departure">Точка отправления:</label>
+                            <label>Откуда забрать</label>
                             <input
                                 type="text"
                                 id="departure"
-                                name="departure"
-                                placeholder="Откуда отправляется груз"
+                                placeholder="г. Сморгонь, ул. Советская 10"
                                 required
                             />
                         </div>
                         <div class="form-group">
-                            <label for="destination">Точка назначения:</label>
+                            <label>Куда доставить</label>
                             <input
                                 type="text"
                                 id="destination"
-                                name="destination"
-                                placeholder="Точный адрес назначения"
+                                placeholder="г. Минск, пр. Победителей 100"
                                 required
                             />
                         </div>
+                    </div>
+                    <button
+                        type="button"
+                        onclick="addToList()"
+                        style="
+                            background: #007bff;
+                            color: white;
+                            padding: 12px 24px;
+                            border: none;
+                            border-radius: 6px;
+                            font-size: 16px;
+                        "
+                    >
+                        Добавить груз в заявку
+                    </button>
+                </form>
+            </div>
 
-                        <div style="margin-top: 20px">
-                            <button type="button" onclick="addToList()">
-                                Добавить в список
-                            </button>
-                            <button
-                                type="button"
-                                onclick="sendOrderToDispatcher()"
-                                class="btn-dispatcher"
-                            >
-                                Отправить заявку диспетчеру
-                            </button>
-                        </div>
-                    </form>
-                </div>
+            <!-- СПИСОК ГРУЗОВ -->
+            <div class="list-section" style="margin-top: 30px">
+                <h2>Грузы в заявке (<span id="cargoCount">0</span>)</h2>
+                <table id="cargoTable">
+                    <thead>
+                        ...
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+
+            <!-- КНОПКА ОТПРАВКИ -->
+            <div style="text-align: center; margin: 30px 0">
+                <button
+                    onclick="sendOrderToDispatcher()"
+                    class="btn-dispatcher"
+                    style="font-size: 20px; padding: 16px 40px"
+                >
+                    ОТПРАВИТЬ ЗАЯВКУ ДИСПЕТЧЕРУ
+                </button>
             </div>
 
             <div class="map-section">
-                <div id="map"></div>
+                <div
+                    id="map"
+                    style="height: 500px; border-radius: 10px; overflow: hidden"
+                ></div>
             </div>
         </div>
 
