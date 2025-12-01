@@ -21,63 +21,46 @@ async function loadCargos() {
 }
 
 async function buildRoute(cargos) {
-  // ← принимаем, не грузим снова
-  if (!cargos || cargos.length === 0) {
-    myMap.geoObjects.removeAll();
-    return;
-  }
-
   myMap.geoObjects.removeAll();
+  if (cargos.length === 0) return;
 
-  const allPoints = [];
-  const pointsMap = new Map();
+  // 1. База — откуда выезжает машина (берём departure из первого груза)
+  const basePoint = cargos[0].departure;
 
-  for (const cargo of cargos) {
-    if (!pointsMap.has(cargo.departure)) {
-      pointsMap.set(cargo.departure, true);
-      allPoints.push(cargo.departure);
-    }
-    if (!pointsMap.has(cargo.destination)) {
-      pointsMap.set(cargo.destination, true);
-      allPoints.push(cargo.destination);
-    }
-  }
-  console.log("Building route through points:", allPoints);
+  // 2. Все точки доставки (destination)
+  const deliveryPoints = cargos.map((c) => c.destination);
+
+  // 3. Формируем маршрут: база → все доставки → база
+  const points = [basePoint, ...deliveryPoints, basePoint];
+
   try {
-    const geocodePromises = allPoints.map((point) => ymaps.geocode(point));
-    const geocodeResults = await Promise.all(geocodePromises);
-    const coordinates = geocodeResults.map((result) => {
-      const geoObject = result.geoObjects.get(0);
-      if (!geoObject) {
-        throw new Error("Не удалось найти координаты для одной из точек");
-      }
-      return geoObject.geometry.getCoordinates();
-    });
-    console.log("Coordinates for route:", coordinates);
     const multiRoute = new ymaps.multiRouter.MultiRoute(
       {
-        referencePoints: coordinates,
+        referencePoints: points,
         params: {
-          results: 1,
           routingMode: "auto",
+          results: 1,
         },
       },
       {
-        boundsAutoFit: true,
+        boundsAutoApply: true,
+        routeStrokeColor: "0000FF",
+        routeActiveStrokeColor: "FF0000",
         wayPointStartIconColor: "#00FF00",
-        wayPointFinishIconColor: "#FF0000",
-        routeActiveStrokeWidth: 6,
-        routeActiveStrokeColor: "#0000FF",
+        wayPointFinishIconColor: "#00FF00",
+        viaPointIconColor: "#FFFF00",
       },
     );
+
     myMap.geoObjects.add(multiRoute);
-    await new Promise((resolve) => {
-      multiRoute.model.events.once("requestsuccess", resolve);
+
+    // Подписываемся на успешное построение
+    multiRoute.model.events.add("requestsuccess", () => {
+      myMap.setBounds(myMap.geoObjects.getBounds(), { checkZoomRange: true });
     });
-  } catch (error) {
-    console.error("Route building error:", error);
-    alert(`Ошибка при построении маршрута: ${error.message}`);
-    return;
+  } catch (err) {
+    console.error("Ошибка маршрута:", err);
+    alert("Не удалось построить маршрут. Проверьте адреса.");
   }
 }
 
