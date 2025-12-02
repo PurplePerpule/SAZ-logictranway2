@@ -1,4 +1,4 @@
-const API_URL = window.location.protocol + "//" + window.location.hostname + ":8080";
+const API_URL = "";
 
 // Получаем данные из localStorage (ID выбранной машины и грузы)
 let selectedVehicleId = null;
