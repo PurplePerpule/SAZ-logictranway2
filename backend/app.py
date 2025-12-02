@@ -552,4 +552,4 @@ if __name__ == "__main__":
             db.session.add(admin)
             db.session.commit()
         db.create_all()
-    app.run(debug=True, port=5000)
+    app.run(debug=True, host="127.0.0.1", port=8080)
