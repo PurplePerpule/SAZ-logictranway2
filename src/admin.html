@@ -2,7 +2,7 @@
 <html lang="ru">
     <head>
         <meta charset="UTF-8" />
-        <title>Админка САЗа</title>
+        <title>Админка САЗа — realtime</title>
         <link rel="stylesheet" href="./style.css" />
         <script
             src="https://api-maps.yandex.ru/2.1/?apikey=28cae7bd-c3b7-4145-94bb-923d2ab7c54e&lang=ru_RU"
@@ -15,6 +15,7 @@
             <a href="#" onclick="showTab('orders')">Заявки</a>
             <a href="#" onclick="showTab('vehicles')">Машины</a>
             <a href="#" onclick="showTab('history')">История рейсов</a>
+            <a href="#" onclick="showTab('tracking')">Трекинг</a>
         </nav>
         <button onclick="exportToExcel()">Экспорт в Excel</button>
         <div class="stats" id="stats">
@@ -139,7 +140,70 @@
                 </div>
             </div>
         </div>
+        <div
+            id="editOrderModal"
+            style="
+                display: none;
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.6);
+                z-index: 1000;
+            "
+        >
+            <div
+                style="
+                    background: white;
+                    margin: 50px auto;
+                    padding: 25px;
+                    width: 500px;
+                    border-radius: 10px;
+                    max-height: 90vh;
+                    overflow-y: auto;
+                "
+            >
+                <h3>Редактирование заявки #<span id="editOrderId"></span></h3>
+                <label>Заявитель:</label>
+                <input
+                    type="text"
+                    id="editApplicant"
+                    class="fullwidth"
+                /><br /><br />
 
+                <label>Отдел:</label>
+                <input
+                    type="text"
+                    id="editDepartment"
+                    class="fullwidth"
+                /><br /><br />
+
+                <label>Телефон:</label>
+                <input
+                    type="text"
+                    id="editPhone"
+                    class="fullwidth"
+                /><br /><br />
+
+                <label>Тип тента:</label>
+                <select id="editTentType" class="fullwidth">
+                    <option value="closed">Закрытый</option>
+                    <option value="open">Открытый</option></select
+                ><br /><br />
+
+                <label>Примечание:</label>
+                <textarea id="editNote" rows="3" class="fullwidth"></textarea
+                ><br /><br />
+
+                <div style="text-align: right">
+                    <button onclick="closeEditModal()">Отмена</button>
+                    <button class="btn" onclick="saveOrderChanges()">
+                        Сохранить
+                    </button>
+                </div>
+            </div>
+        </div>
         <script src="admin.js"></script>
         <script>
             const token = localStorage.getItem("token");

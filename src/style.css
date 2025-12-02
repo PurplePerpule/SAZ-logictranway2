@@ -92,6 +92,23 @@ button:hover {
     padding-bottom: 8px;
 }
 
+.fullwidth {
+    width: 100%;
+    padding: 8px;
+    box-sizing: border-box;
+}
+.btn {
+    background: #0066cc;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+.btn:hover {
+    background: #0052a3;
+}
+
 /* ==================== ТАБЛИЦЫ ==================== */
 table {
     width: 100%;

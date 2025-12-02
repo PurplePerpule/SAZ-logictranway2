@@ -555,6 +555,51 @@ def print_ttn(order_id):
     response.headers['Content-Disposition'] = f'attachment; filename=ttn_{order.id}.pdf'
     return response
 
+@app.route("/orders/<int:id>", methods=["DELETE"])
+#@jwt_required()
+def delete_order(id):
+    current_user = get_jwt_identity()
+    if current_user["role"] != "admin":
+        return jsonify({"error": "Только администратор"}), 403
+
+    order = Order.query.get_or_404(id)
+
+    # Нельзя удалять уже назначенные или завершённые заявки
+    if order.status != "new":
+        return jsonify({"error": "Можно удалять только новые заявки"}), 400
+
+    # Удаляем связанные грузы (они только в этой заявке)
+    for cargo in order.cargos:
+        db.session.delete(cargo)
+
+    db.session.delete(order)
+    db.session.commit()
+    return jsonify({"message": "Заявка удалена"}), 200
+
+
+@app.route("/orders/<int:id>", methods=["PUT"])
+#@jwt_required()
+def update_order(id):
+    current_user = get_jwt_identity()
+    if current_user["role"] != "admin":
+        return jsonify({"error": "Только администратор"}), 403
+
+    order = Order.query.get_or_404(id)
+    if order.status != "new":
+        return jsonify({"error": "Редактировать можно только новые заявки"}), 400
+
+    data = request.get_json()
+
+    order.applicant = data.get("applicant", order.applicant)
+    order.department = data.get("department", order.department)
+    order.phone_number = data.get("phone_number", order.phone_number)
+    order.tent_type = data.get("tent_type", order.tent_type)
+    order.note = data.get("note", order.note)
+
+    db.session.commit()
+    return jsonify(order.to_dict()), 200
+
+
 if __name__ == "__main__":
     with app.app_context():
         if not User.query.first():

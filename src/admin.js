@@ -85,9 +85,24 @@ function renderActiveOrders(orders) {
       <td>${order.phone_number || "-"}</td>
       <td>${order.tent_type === "open" ? "Открытый" : "Закрытый"}</td>
       <td>
-        ${order.status === "new" ? `<button class="btn" onclick="openAssignModal(${order.id})">Подобрать машину</button>` : ""}
-        ${order.status === "assigned" ? `<button class="btn" onclick="completeOrder(${order.id})">Завершить рейс</button>` : ""}
+        ${
+          order.status === "new"
+            ? `
+          <button class="btn" onclick="openAssignModal(${order.id})">Подобрать машину </button>
+          <button class="btn" onclick="openEditModal(${order.id})" style="background:#ff9800;">Изменить</button>
+          <button class="btn" onclick="deleteOrder(${order.id})" style="background:#d32f2f;">Удалить</button>
+        `
+            : ""
+        }
+        ${order.status === "assigned" ? `<button class="btn" onclick="completeOrder(${order.id})">Завершить</button>` : ""}
         <button class="btn" onclick="viewOrderDetails(${order.id})">Подробно</button>
+        ${
+          order.status === "assigned" || order.status === "completed"
+            ? `
+          <button class="btn" onclick="printTTN(${order.id})" style="background:#4caf50;">ТТН</button>
+        `
+            : ""
+        }
       </td>
     `;
     tbody.appendChild(tr);
@@ -256,6 +271,84 @@ function getStatusText(status) {
       return "Завершён";
     default:
       return status;
+  }
+}
+
+function openEditModal(orderId) {
+  fetch(`${API}/orders/${orderId}`)
+    .then((r) => r.json())
+    .then((order) => {
+      currentOrderId = orderId;
+      document.getElementById("editOrderId").textContent = order.id;
+      document.getElementById("editApplicant").value = order.applicant || "";
+      document.getElementById("editDepartment").value = order.department || "";
+      document.getElementById("editPhone").value = order.phone_number || "";
+      document.getElementById("editTentType").value =
+        order.tent_type || "closed";
+      document.getElementById("editNote").value = order.note || "";
+      document.getElementById("editOrderModal").style.display = "block";
+    });
+}
+
+function closeEditModal() {
+  document.getElementById("editOrderModal").style.display = "none";
+}
+
+async function saveOrderChanges() {
+  const data = {
+    applicant: document.getElementById("editApplicant").value,
+    department: document.getElementById("editDepartment").value,
+    phone_number: document.getElementById("editPhone").value,
+    tent_type: document.getElementById("editTentType").value,
+    note: document.getElementById("editNote").value,
+  };
+
+  try {
+    const res = await fetch(`${API}/orders/${currentOrderId}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${localStorage.getItem("token")}`,
+      },
+      body: JSON.stringify(data),
+    });
+
+    if (res.ok) {
+      alert("Заявка обновлена");
+      closeEditModal();
+      loadOrders();
+    } else {
+      const err = await res.json();
+      alert("Ошибка: " + (err.error || "неизвестно"));
+    }
+  } catch (e) {
+    alert("Ошибка связи");
+  }
+}
+
+async function deleteOrder(orderId) {
+  if (
+    !confirm("Удалить заявку №" + orderId + "? Это действие нельзя отменить!")
+  )
+    return;
+
+  try {
+    const res = await fetch(`${API}/orders/${orderId}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem("token")}`,
+      },
+    });
+
+    if (res.ok) {
+      alert("Заявка удалена");
+      loadOrders();
+    } else {
+      const err = await res.json();
+      alert("Ошибка: " + (err.error || "нельзя удалить"));
+    }
+  } catch (e) {
+    alert("Ошибка связи");
   }
 }
 
