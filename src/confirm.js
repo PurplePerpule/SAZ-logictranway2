@@ -1,4 +1,4 @@
-const API_URL = "http://127.0.0.1:5000";
+const API_URL = "";
 
 // Получаем данные из localStorage (ID выбранной машины и грузы)
 let selectedVehicleId = null;
