@@ -1,5 +1,5 @@
 // @ts-nocheck
-const API = window.location.protocol + "//" + window.location.hostname + ":8080";
+const API = "";
 
 async function loadOrders() {
   try {

@@ -10,7 +10,7 @@ function init() {
   loadCargos();
 }
 
-const API_URL = window.location.protocol + "//" + window.location.hostname + ":8080";
+const API_URL = "";
 
 async function loadCargos() {
   const res = await fetch(`${API_URL}/draft_cargos`);
