@@ -10,7 +10,7 @@ function init() {
   loadCargos();
 }
 
-const API_URL = "";
+const API_URL = "http://192.168.15.189:5000";
 
 async function loadCargos() {
   const res = await fetch(`${API_URL}/draft_cargos`);
