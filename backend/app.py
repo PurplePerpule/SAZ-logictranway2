@@ -5,21 +5,32 @@ from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from typing import List
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 from io import BytesIO
 from openpyxl.workbook.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
+
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 import pdfkit
+
 import os
+
 
 app = Flask(__name__)
 CORS(app)
 
-app.config["JWT_SECRET_KEY"] = os.urandom(32)
-jwt = JWTManager(app)
+
+app.config["SECRET_KEY"] = "c639183901c409352be3d01c521c7694"
+
+login_manager = LoginManager(app)
+login_manager.login_view = "login"
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
+
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///" + os.path.join(basedir, "database.db")
@@ -160,7 +171,9 @@ class Trip(db.Model):
             "status": self.status,
         }
 
-class User(db.Model):
+
+class User(db.Model, UserMixin):
+
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password = db.Column(db.String(120), nullable=False)
@@ -174,26 +187,48 @@ class User(db.Model):
             "role": self.role
         }
 
+
 def role_required(role):
+
     def wrapper(fn):
+
         @wraps(fn)
-        @jwt_required()
+
+        @login_required
         def decorator(*args, **kwargs):
-            current_user = get_jwt_identity()
-            if current_user["role"] != role:
+
+            if not current_user.is_authenticated or current_user.role != role:
                 return jsonify({"error": "Доступ запрещён"}), 403
+
             return fn(*args, **kwargs)
+
         return decorator
+
     return wrapper
 
+
+
 @app.route("/login", methods=["POST"])
+
 def login():
-    data = request.get_json()
-    user = User.query.filter_by(username=data["username"]).first()
-    if not user or not check_password_hash(user.password, data["password"]):
+
+    data = request.get_json() or {}
+
+    user = User.query.filter_by(username=data.get("username")).first()
+
+    if not user or not check_password_hash(user.password, data.get("password", "")):
         return jsonify({"error": "Неверный логин или пароль"}), 401
-    token = create_access_token(identity={"username": user.username, "role": user.role})
-    return jsonify({"token": token, "role": user.role})
+
+    login_user(user)
+    # Возвращаем "token" для обратной совместимости с фронтом
+    return jsonify({"token": "ok", "role": user.role})
+
+@app.route("/logout", methods=["POST"])
+@login_required
+def logout():
+    logout_user()
+    return jsonify({"message": "Вышли из системы"})
+
 
 
 
@@ -233,15 +268,28 @@ def add_vehicle():
     db.session.commit()
     return jsonify(new_vehicle.to_dict()), 201
 
+
 @app.route("/vehicles/<int:id>", methods=["PUT", "PATCH"])
+
+@login_required
 def update_vehicle_status(id):
+
+    if not current_user.is_authenticated or current_user.role != "admin":
+        return jsonify({"error": "Только администратор"}), 403
     vehicle = Vehicle.query.get_or_404(id)
+
     data = request.get_json()
+
     if "status" in data:
+
         vehicle.status = data["status"]
+
         db.session.commit()
+
         return jsonify(vehicle.to_dict()), 200
+
     return jsonify({"error": "Status not provided"}), 400
+
 
 @app.route("/orders", methods=["GET"])
 def get_orders():
@@ -323,20 +371,36 @@ def clear_draft_cargos():
     db.session.commit()
     return jsonify({"message": "Черновик очищен"})
 
+
 @app.route("/orders/<int:id>/assign", methods=["POST"])
+
 def assign_vehicle(id):
+
     order = Order.query.get_or_404(id)
+
     data = request.get_json()
+
     vehicle_id = data.get("vehicle_id")
+
     vehicle = Vehicle.query.get_or_404(vehicle_id)
+
+    if vehicle.status == "in_repair":
+        return jsonify({"error": "Машина в ремонте"}), 400
     if vehicle.status != "free":
         return jsonify({"error": "Машина занята"}), 400
+
     order.vehicle_id = vehicle_id
+
     order.status = "assigned"
+
     vehicle.status = "busy"
+
     vehicle.current_cargo_ids = ",".join(map(str, [c.id for c in order.cargos]))
+
     db.session.commit()
+
     return jsonify({"message": "Машина назначена"})
+
 
 @app.route("/orders/<int:id>/complete", methods=["POST"])
 def complete_order(id):
@@ -371,10 +435,16 @@ def suggest_vehicle(order_id):
                 return False
         return True
 
+
     vehicles = Vehicle.query.filter(
+
         Vehicle.status == "free",
-        Vehicle.tent_type == order.tent_type
+
+        Vehicle.tent_type == order.tent_type,
+
+        Vehicle.status != "in_repair"
     ).all()
+
 
     best = None
     min_extra = float("inf")
@@ -429,13 +499,22 @@ def match_vehicle():
                 return False
         return total_stacked_height <= vehicle_height
 
+
     suitable_vehicles = Vehicle.query.filter(
+
         Vehicle.status == "free",
+
         Vehicle.capacity >= total_weight,
+
         Vehicle.length >= max_l,
+
         Vehicle.width >= max_w,
-        Vehicle.tent_type == data.get("tent_type", "closed")
+
+        Vehicle.tent_type == data.get("tent_type", "closed"),
+
+        Vehicle.status != "in_repair"
     ).all()
+
 
     best_vehicle = None
     min_extra_capacity = float("inf")
@@ -543,12 +622,15 @@ def print_ttn(order_id):
     response.headers['Content-Disposition'] = f'attachment; filename=ttn_{order.id}.pdf'
     return response
 
+
 @app.route("/orders/<int:id>", methods=["DELETE"])
-#@jwt_required()
+
+@login_required
 def delete_order(id):
-    current_user = get_jwt_identity()
-    if current_user["role"] != "admin":
+
+    if not current_user.is_authenticated or current_user.role != "admin":
         return jsonify({"error": "Только администратор"}), 403
+
 
     order = Order.query.get_or_404(id)
 
@@ -565,12 +647,15 @@ def delete_order(id):
     return jsonify({"message": "Заявка удалена"}), 200
 
 
+
 @app.route("/orders/<int:id>", methods=["PUT"])
-#@jwt_required()
+
+@login_required
 def update_order(id):
-    current_user = get_jwt_identity()
-    if current_user["role"] != "admin":
+
+    if not current_user.is_authenticated or current_user.role != "admin":
         return jsonify({"error": "Только администратор"}), 403
+
 
     order = Order.query.get_or_404(id)
     if order.status != "new":
@@ -588,13 +673,127 @@ def update_order(id):
     return jsonify(order.to_dict()), 200
 
 
+
+# Admin: CRUD for cargos in order (admin only, allowed only for 'new' orders)
+@app.route("/orders/<int:order_id>/cargos", methods=["GET"])
+@login_required
+def list_order_cargos(order_id):
+    if not current_user.is_authenticated or current_user.role != "admin":
+        return jsonify({"error": "Только администратор"}), 403
+    order = Order.query.get_or_404(order_id)
+    return jsonify([c.to_dict() for c in order.cargos])
+
+@app.route("/orders/<int:order_id>/cargos", methods=["POST"])
+@login_required
+def add_order_cargo(order_id):
+    if not current_user.is_authenticated or current_user.role != "admin":
+        return jsonify({"error": "Только администратор"}), 403
+    order = Order.query.get_or_404(order_id)
+    if order.status != "new":
+        return jsonify({"error": "Можно изменять грузы только в новых заявках"}), 400
+    data = request.get_json() or {}
+    allowed = ["name", "weight", "length", "width", "height", "quantity", "departure", "destination"]
+    payload = {k: data[k] for k in allowed if k in data}
+    if len(payload) != len(allowed):
+        return jsonify({"error": "Не все поля груза заполнены"}), 400
+    cargo = Cargo(**payload)
+    db.session.add(cargo)
+    db.session.flush()
+    order.cargos.append(cargo)
+    db.session.commit()
+    return jsonify(cargo.to_dict()), 201
+
+@app.route("/orders/<int:order_id>/cargos/<int:cargo_id>", methods=["PUT", "PATCH"])
+@login_required
+def update_order_cargo(order_id, cargo_id):
+    if not current_user.is_authenticated or current_user.role != "admin":
+        return jsonify({"error": "Только администратор"}), 403
+    order = Order.query.get_or_404(order_id)
+    if order.status != "new":
+        return jsonify({"error": "Можно изменять грузы только в новых заявках"}), 400
+    cargo = Cargo.query.get_or_404(cargo_id)
+    if cargo not in order.cargos:
+        return jsonify({"error": "Груз не найден в этой заявке"}), 404
+    data = request.get_json() or {}
+    for field in ["name", "weight", "length", "width", "height", "quantity", "departure", "destination"]:
+        if field in data:
+            setattr(cargo, field, data[field])
+    db.session.commit()
+    return jsonify(cargo.to_dict()), 200
+
+@app.route("/orders/<int:order_id>/cargos/<int:cargo_id>", methods=["DELETE"])
+@login_required
+def delete_order_cargo(order_id, cargo_id):
+    if not current_user.is_authenticated or current_user.role != "admin":
+        return jsonify({"error": "Только администратор"}), 403
+    order = Order.query.get_or_404(order_id)
+    if order.status != "new":
+        return jsonify({"error": "Можно изменять грузы только в новых заявках"}), 400
+    cargo = Cargo.query.get_or_404(cargo_id)
+    if cargo not in order.cargos:
+        return jsonify({"error": "Груз не найден в этой заявке"}), 404
+    try:
+        order.cargos.remove(cargo)
+    except ValueError:
+        pass
+    db.session.delete(cargo)
+    db.session.commit()
+    return jsonify({"message": "Груз удалён"}), 200
+
+# Маршруты для раздачи фронтенда с того же порта
+_static_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
+
+@app.route("/", methods=["GET"])
+def root_page():
+    return send_file(os.path.join(_static_root, "index.html"))
+
+@app.route("/index.html")
+def index_html():
+    return send_file(os.path.join(_static_root, "index.html"))
+
+@app.route("/login.html")
+def login_html():
+    return send_file(os.path.join(_static_root, "login.html"))
+
+@app.route("/admin.html")
+def admin_html():
+    return send_file(os.path.join(_static_root, "admin.html"))
+
+@app.route("/confirm.html")
+def confirm_html():
+    return send_file(os.path.join(_static_root, "confirm.html"))
+
+@app.route("/script.js")
+def script_js():
+    return send_file(os.path.join(_static_root, "script.js"))
+
+@app.route("/admin.js")
+def admin_js():
+    return send_file(os.path.join(_static_root, "admin.js"))
+
+@app.route("/confirm.js")
+def confirm_js():
+    return send_file(os.path.join(_static_root, "confirm.js"))
+
+@app.route("/style.css")
+def style_css():
+    return send_file(os.path.join(_static_root, "style.css"))
+
+
 if __name__ == "__main__":
     with app.app_context():
         if not User.query.first():
+
             user = User(username="user", password=generate_password_hash("sazwork205"), role="user")
+
             admin = User(username="admin", password=generate_password_hash("sazadmin2025"), role="admin")
+
             db.session.add(user)
+
             db.session.add(admin)
+
             db.session.commit()
+
         db.create_all()
+
     app.run(debug=True, port=5000)

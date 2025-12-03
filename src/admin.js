@@ -111,20 +111,105 @@ function renderActiveOrders(orders) {
 
 function renderVehicles(vehicles) {
   const tbody = document.querySelector("#vehiclesTable tbody");
+
   tbody.innerHTML = "";
+
   vehicles.forEach((v) => {
     const tr = document.createElement("tr");
+
     tr.innerHTML = `
+
       <td>${v.garage_number}</td>
+
       <td>${v.brand}</td>
+
       <td>${v.driver}</td>
+
       <td>${v.tent_type === "open" ? "Открытый" : "Закрытый"}</td>
-      <td><span class="status-badge ${v.status === "free" ? "status-free" : "status-busy"}">
-        ${v.status === "free" ? "Свободна" : "Занята"}
+
+      <td><span class="status-badge ${
+        v.status === "free"
+          ? "status-free"
+          : v.status === "in_repair"
+            ? "status-repair"
+            : "status-busy"
+      }">
+
+        ${
+          v.status === "free"
+            ? "Свободна"
+            : v.status === "in_repair"
+              ? "В ремонте"
+              : "Занята"
+        }
+
       </span></td>
+
     `;
+
     tbody.appendChild(tr);
   });
+
+  // Заполняем селекты для смены статуса и для трекинга
+  const statusSel = document.getElementById("vehicleStatusSelect");
+  const trackingSel = document.getElementById("trackingVehicleSelect");
+
+  if (statusSel) {
+    const selected = statusSel.value;
+    statusSel.innerHTML = "";
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "— Выберите машину —";
+    statusSel.appendChild(placeholder);
+    vehicles.forEach((v) => {
+      const opt = document.createElement("option");
+      opt.value = v.id;
+      opt.textContent = `${v.garage_number} — ${v.brand} (${v.driver})`;
+      statusSel.appendChild(opt);
+    });
+    if (selected) statusSel.value = selected;
+  }
+
+  if (trackingSel) {
+    const selected = trackingSel.value;
+    trackingSel.innerHTML = "";
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "— Выберите машину —";
+    trackingSel.appendChild(placeholder);
+    vehicles.forEach((v) => {
+      const opt = document.createElement("option");
+      opt.value = v.id;
+      opt.textContent = `${v.garage_number} — ${v.brand} (${v.driver})`;
+      trackingSel.appendChild(opt);
+    });
+    if (selected) trackingSel.value = selected;
+  }
+}
+
+function applyVehicleStatus() {
+  const vehicleSel = document.getElementById("vehicleStatusSelect");
+  const statusSel = document.getElementById("vehicleNewStatus");
+  if (!vehicleSel || !statusSel || !vehicleSel.value) {
+    alert("Выберите машину и статус");
+    return;
+  }
+  const id = parseInt(vehicleSel.value);
+  const status = statusSel.value;
+  fetch(`${API}/vehicles/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status }),
+  })
+    .then(async (res) => {
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Ошибка обновления статуса");
+      }
+      alert("Статус обновлён");
+      loadVehicles();
+    })
+    .catch((e) => alert(e.message || "Ошибка связи"));
 }
 
 function renderHistory(orders) {
@@ -201,18 +286,56 @@ async function assignVehicle() {
 }
 
 ymaps.ready(() => {
-  const myMap = new ymaps.Map("map", { center: [53.9, 27.56], zoom: 10 });
-  async function loadTracking() {
+  myMap = new ymaps.Map("map", { center: [53.9, 27.56], zoom: 10 });
+
+  async function loadTrackingAll() {
     const orders = await fetch(`${API}/orders`).then((r) => r.json());
+
     const active = orders.filter((o) => o.status === "assigned");
+
     active.forEach((o) => {
       const points = o.cargos.flatMap((c) => [c.departure, c.destination]);
+
       if (points.length) {
         ymaps.route(points).then((route) => myMap.geoObjects.add(route));
       }
     });
   }
-  loadTracking();
+
+  window.trackingShowRoute = async function () {
+    if (!myMap) return;
+    myMap.geoObjects.removeAll();
+    const sel = document.getElementById("trackingVehicleSelect");
+    if (!sel || !sel.value) {
+      alert("Выберите машину");
+      return;
+    }
+    const vehicleId = parseInt(sel.value);
+    const orders = await fetch(`${API}/orders`).then((r) => r.json());
+    const active = orders.filter(
+      (o) => o.status === "assigned" && o.vehicle && o.vehicle.id === vehicleId,
+    );
+    if (active.length === 0) {
+      alert("Для выбранной машины нет активного рейса");
+      return;
+    }
+    for (const o of active) {
+      const points = o.cargos.flatMap((c) => [c.departure, c.destination]);
+      if (points.length) {
+        // Ждём промис, чтобы маршруты строились последовательно
+        // (иначе тоже сработает, но может добавляться в любом порядке)
+        /* eslint-disable no-await-in-loop */
+        await ymaps.route(points).then((route) => myMap.geoObjects.add(route));
+        /* eslint-enable no-await-in-loop */
+      }
+    }
+  };
+
+  window.trackingClear = function () {
+    if (myMap) myMap.geoObjects.removeAll();
+  };
+
+  loadTrackingAll();
 });
 
 async function completeOrder(orderId) {
