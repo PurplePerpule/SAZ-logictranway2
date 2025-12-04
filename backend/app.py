@@ -780,20 +780,18 @@ def style_css():
     return send_file(os.path.join(_static_root, "style.css"))
 
 
-if __name__ == "__main__":
-    with app.app_context():
-        if not User.query.first():
+with app.app_context():
+    if not User.query.first():
+        user = User(username="user", password=generate_password_hash("sazwork205"), role="user")
+        admin = User(username="admin", password=generate_password_hash("sazadmin2025"), role="admin")
+        db.session.add(user)
+        db.session.add(admin)
+        db.session.commit()
+    db.create_all()
 
-            user = User(username="user", password=generate_password_hash("sazwork205"), role="user")
-
-            admin = User(username="admin", password=generate_password_hash("sazadmin2025"), role="admin")
-
-            db.session.add(user)
-
-            db.session.add(admin)
-
-            db.session.commit()
-
-        db.create_all()
-
-    app.run(host="0.0.0.0", port=5000, debug=True)
+# if __name__ == "__main__":
+#     with app.app_context():
+#         if not User.query.first():
+#             ...
+#         db.create_all()
+#     app.run(host="0.0.0.0", port=5000, debug=True)
