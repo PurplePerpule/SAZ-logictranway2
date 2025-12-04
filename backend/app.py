@@ -37,6 +37,9 @@ app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///" + os.path.join(basedir, "da
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 
+
+
+
 order_cargo = db.Table(
     "order_cargo",
     db.Column("order_id", db.Integer, db.ForeignKey("order.id"), primary_key=True),
@@ -187,6 +190,14 @@ class User(db.Model, UserMixin):
             "role": self.role
         }
 
+with app.app_context():
+    if not User.query.first():
+        user = User(username="user", password=generate_password_hash("sazwork205"), role="user")
+        admin = User(username="admin", password=generate_password_hash("sazadmin2025"), role="admin")
+        db.session.add(user)
+        db.session.add(admin)
+        db.session.commit()
+    db.create_all()
 
 def role_required(role):
 
@@ -780,14 +791,7 @@ def style_css():
     return send_file(os.path.join(_static_root, "style.css"))
 
 
-with app.app_context():
-    if not User.query.first():
-        user = User(username="user", password=generate_password_hash("sazwork205"), role="user")
-        admin = User(username="admin", password=generate_password_hash("sazadmin2025"), role="admin")
-        db.session.add(user)
-        db.session.add(admin)
-        db.session.commit()
-    db.create_all()
+
 
 # if __name__ == "__main__":
 #     with app.app_context():
