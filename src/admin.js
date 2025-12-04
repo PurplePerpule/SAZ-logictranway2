@@ -1,5 +1,5 @@
 // @ts-nocheck
-const API = "http://TransLogicSaz:5000";
+const API = "http://translogicsaz:5000";
 
 async function loadOrders() {
   try {

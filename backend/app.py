@@ -19,7 +19,7 @@ import os
 
 
 app = Flask(__name__)
-CORS(app, supports_credentials=True)
+CORS(app, resources={r"/*": {"origins": "*"}}, allow_headers="*", supports_credentials=True)
 
 
 app.config["SECRET_KEY"] = "c639183901c409352be3d01c521c7694"
@@ -208,8 +208,7 @@ def role_required(role):
 
 
 
-@app.route("/login", methods=["POST"])
-
+@app.route('/login', methods=['POST', 'OPTIONS'])
 def login():
 
     data = request.get_json() or {}
