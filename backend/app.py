@@ -19,7 +19,7 @@ import os
 
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, supports_credentials=True)
 
 
 app.config["SECRET_KEY"] = "c639183901c409352be3d01c521c7694"
@@ -796,4 +796,4 @@ if __name__ == "__main__":
 
         db.create_all()
 
-    app.run(debug=True, port=5000)
+    app.run(host="0.0.0.0", port=5000, debug=True)
