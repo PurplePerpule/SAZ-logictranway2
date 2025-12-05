@@ -779,7 +779,18 @@ def confirm_js():
 def style_css():
     return send_file(os.path.join(_static_root, "style.css"))
 
+@app.route("/favicon.ico")
+def favicon_ico():
+    return send_file(os.path.join(_static_root, "favicon.ico"))
 
+@app.after_request
+def after_request(response):
+
+
+    if 'Cache-Control' not in response.headers:
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, private'
+
+    return response
 if __name__ == "__main__":
     with app.app_context():
         if not User.query.first():
