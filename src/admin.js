@@ -1,5 +1,6 @@
 // @ts-nocheck
-const API = "http://192.168.15.204:5000";
+const API =
+  window.location.protocol + "//" + window.location.hostname + ":5000";
 
 async function loadOrders() {
   try {
