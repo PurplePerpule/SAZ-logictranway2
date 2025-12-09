@@ -1,6 +1,22 @@
 // @ts-nocheck
 const API = "";
 
+// Функция принудительного вывода времени по Москве (UTC+3)
+function formatMSK(dateString) {
+  const date = new Date(dateString);
+  const mskOffset = 6 * 60; // +3 часа в минутах
+  const utc = date.getTime() + date.getTimezoneOffset() * 60000;
+  const mskTime = new Date(utc + mskOffset * 60000);
+
+  return mskTime.toLocaleString("ru-RU", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 async function loadOrders() {
   try {
     const res = await fetch(`${API}/orders`);
@@ -73,9 +89,10 @@ function renderActiveOrders(orders) {
     const vehicleInfo = order.vehicle
       ? `${order.vehicle.garage_number} — ${order.vehicle.brand} (${order.vehicle.driver})`
       : "—";
+
     tr.innerHTML = `
       <td>${order.id}</td>
-      <td>${new Date(order.created_at).toLocaleString("ru-RU")}</td>
+      <td>${formatMSK(order.created_at)}</td>
       <td>${order.cargos[0]?.departure || "-"} → ${order.cargos[order.cargos.length - 1]?.destination || "-"}</td>
       <td>${order.cargos.length}</td>
       <td>${getStatusText(order.status)}</td>
@@ -111,105 +128,55 @@ function renderActiveOrders(orders) {
 
 function renderVehicles(vehicles) {
   const tbody = document.querySelector("#vehiclesTable tbody");
-
   tbody.innerHTML = "";
 
   vehicles.forEach((v) => {
     const tr = document.createElement("tr");
-
     tr.innerHTML = `
-
       <td>${v.garage_number}</td>
-
       <td>${v.brand}</td>
-
       <td>${v.driver}</td>
-
       <td>${v.tent_type === "open" ? "Открытый" : "Закрытый"}</td>
-
-      <td><span class="status-badge ${
-        v.status === "free"
-          ? "status-free"
-          : v.status === "in_repair"
-            ? "status-repair"
-            : "status-busy"
-      }">
-
-        ${
-          v.status === "free"
-            ? "Свободна"
-            : v.status === "in_repair"
-              ? "В ремонте"
-              : "Занята"
-        }
-
+      <td><span class="status-badge ${v.status === "free" ? "status-free" : v.status === "in_repair" ? "status-repair" : "status-busy"}">
+        ${v.status === "free" ? "Свободна" : v.status === "in_repair" ? "В ремонте" : "Занята"}
       </span></td>
-
     `;
-
     tbody.appendChild(tr);
   });
 
-  // Заполняем селекты для смены статуса и для трекинга
-  const statusSel = document.getElementById("vehicleStatusSelect");
-  const trackingSel = document.getElementById("trackingVehicleSelect");
-
-  if (statusSel) {
-    const selected = statusSel.value;
-    statusSel.innerHTML = "";
-    const placeholder = document.createElement("option");
-    placeholder.value = "";
-    placeholder.textContent = "— Выберите машину —";
-    statusSel.appendChild(placeholder);
+  // Заполняем селекты
+  ["vehicleStatusSelect", "trackingVehicleSelect"].forEach((id) => {
+    const sel = document.getElementById(id);
+    if (!sel) return;
+    const selected = sel.value;
+    sel.innerHTML = '<option value="">— Выберите машину —</option>';
     vehicles.forEach((v) => {
       const opt = document.createElement("option");
       opt.value = v.id;
       opt.textContent = `${v.garage_number} — ${v.brand} (${v.driver})`;
-      statusSel.appendChild(opt);
+      sel.appendChild(opt);
     });
-    if (selected) statusSel.value = selected;
-  }
-
-  if (trackingSel) {
-    const selected = trackingSel.value;
-    trackingSel.innerHTML = "";
-    const placeholder = document.createElement("option");
-    placeholder.value = "";
-    placeholder.textContent = "— Выберите машину —";
-    trackingSel.appendChild(placeholder);
-    vehicles.forEach((v) => {
-      const opt = document.createElement("option");
-      opt.value = v.id;
-      opt.textContent = `${v.garage_number} — ${v.brand} (${v.driver})`;
-      trackingSel.appendChild(opt);
-    });
-    if (selected) trackingSel.value = selected;
-  }
+    if (selected) sel.value = selected;
+  });
 }
 
 function applyVehicleStatus() {
   const vehicleSel = document.getElementById("vehicleStatusSelect");
   const statusSel = document.getElementById("vehicleNewStatus");
-  if (!vehicleSel || !statusSel || !vehicleSel.value) {
-    alert("Выберите машину и статус");
-    return;
-  }
-  const id = parseInt(vehicleSel.value);
-  const status = statusSel.value;
-  fetch(`${API}/vehicles/${id}`, {
+  if (!vehicleSel?.value || !statusSel?.value)
+    return alert("Выберите машину и статус");
+
+  fetch(`${API}/vehicles/${vehicleSel.value}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ status }),
+    body: JSON.stringify({ status: statusSel.value }),
   })
     .then(async (res) => {
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || "Ошибка обновления статуса");
-      }
+      if (!res.ok) throw new Error((await res.json()).error || "Ошибка");
       alert("Статус обновлён");
       loadVehicles();
     })
-    .catch((e) => alert(e.message || "Ошибка связи"));
+    .catch((e) => alert(e.message || "Ошибка"));
 }
 
 function renderHistory(orders) {
@@ -222,7 +189,7 @@ function renderHistory(orders) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${order.id}</td>
-      <td>${new Date(order.created_at).toLocaleString("ru-RU")}</td>
+      <td>${formatMSK(order.created_at)}</td>
       <td>${vehicle}</td>
       <td>${order.cargos.length}</td>
     `;
@@ -243,10 +210,10 @@ function openAssignModal(orderId) {
       fetch(`${API}/vehicles`)
         .then((r) => r.json())
         .then((vehicles) => {
-          const freeVehicles = vehicles.filter((v) => v.status === "free");
+          const free = vehicles.filter((v) => v.status === "free");
           const select = document.getElementById("vehicleSelect");
           select.innerHTML = '<option value="">— Выберите машину —</option>';
-          freeVehicles.forEach((v) => {
+          free.forEach((v) => {
             const opt = document.createElement("option");
             opt.value = v.id;
             opt.textContent = `${v.garage_number} — ${v.brand} (${v.driver}) — ${v.capacity} кг`;
@@ -269,7 +236,7 @@ async function assignVehicle() {
     const res = await fetch(`${API}/orders/${currentOrderId}/assign`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ vehicle_id: parseInt(vehicleId) }),
+      body: JSON.stringify({ vehicle_id: +vehicleId }),
     });
     if (res.ok) {
       alert("Машина успешно назначена!");
@@ -281,77 +248,48 @@ async function assignVehicle() {
       alert("Ошибка: " + (err.error || "неизвестно"));
     }
   } catch (e) {
-    alert("Ошибка связи с сервером");
+    alert("Ошибка связи");
   }
 }
 
 ymaps.ready(() => {
   myMap = new ymaps.Map("map", { center: [53.9, 27.56], zoom: 10 });
 
-  async function loadTrackingAll() {
-    const orders = await fetch(`${API}/orders`).then((r) => r.json());
-
-    const active = orders.filter((o) => o.status === "assigned");
-
-    active.forEach((o) => {
-      const points = o.cargos.flatMap((c) => [c.departure, c.destination]);
-
-      if (points.length) {
-        ymaps.route(points).then((route) => myMap.geoObjects.add(route));
-      }
-    });
-  }
-
   window.trackingShowRoute = async function () {
     if (!myMap) return;
     myMap.geoObjects.removeAll();
     const sel = document.getElementById("trackingVehicleSelect");
-    if (!sel || !sel.value) {
-      alert("Выберите машину");
-      return;
-    }
-    const vehicleId = parseInt(sel.value);
+    if (!sel?.value) return alert("Выберите машину");
+
+    const vehicleId = +sel.value;
     const orders = await fetch(`${API}/orders`).then((r) => r.json());
     const active = orders.filter(
-      (o) => o.status === "assigned" && o.vehicle && o.vehicle.id === vehicleId,
+      (o) => o.status === "assigned" && o.vehicle?.id === vehicleId,
     );
-    if (active.length === 0) {
-      alert("Для выбранной машины нет активного рейса");
-      return;
-    }
+
+    if (!active.length)
+      return alert("Для выбранной машины нет активного рейса");
+
     for (const o of active) {
       const points = o.cargos.flatMap((c) => [c.departure, c.destination]);
-      if (points.length) {
-        // Ждём промис, чтобы маршруты строились последовательно
-        // (иначе тоже сработает, но может добавляться в любом порядке)
-        /* eslint-disable no-await-in-loop */
+      if (points.length)
         await ymaps.route(points).then((route) => myMap.geoObjects.add(route));
-        /* eslint-enable no-await-in-loop */
-      }
     }
   };
 
-  window.trackingClear = function () {
-    if (myMap) myMap.geoObjects.removeAll();
-  };
-
-  loadTrackingAll();
+  window.trackingClear = () => myMap?.geoObjects.removeAll();
 });
 
 async function completeOrder(orderId) {
   if (!confirm("Завершить рейс и освободить машину?")) return;
-  try {
-    const res = await fetch(`${API}/orders/${orderId}/complete`, {
-      method: "POST",
-    });
-    if (res.ok) {
-      alert("Рейс завершён, машина освобождена");
-      loadOrders();
-      loadVehicles();
-    }
-  } catch (e) {
-    alert("Ошибка");
-  }
+  const res = await fetch(`${API}/orders/${orderId}/complete`, {
+    method: "POST",
+  });
+  if (res.ok) {
+    alert("Рейс завершён, машина освобождена");
+    loadOrders();
+    loadVehicles();
+  } else alert("Ошибка");
 }
 
 function viewOrderDetails(orderId) {
@@ -365,36 +303,23 @@ function viewOrderDetails(orderId) {
       const vehicle = order.vehicle
         ? `${order.vehicle.garage_number} — ${order.vehicle.brand} (${order.vehicle.driver})`
         : "Не назначена";
+
       alert(
-        `ЗАЯВКА #${order.id}\nСоздано: ${new Date(order.created_at).toLocaleString("ru-RU")}\nСтатус: ${getStatusText(order.status)}\nМашина: ${vehicle}\nГрузы:\n${cargosHtml}`.trim(),
+        `ЗАЯВКА #${order.id}\n` +
+          `Создано: ${formatMSK(order.created_at)}\n` +
+          `Статус: ${getStatusText(order.status)}\n` +
+          `Машина: ${vehicle}\n` +
+          `Грузы:\n${cargosHtml}`,
       );
     });
 }
 
-let lastNewCount = 0;
-setInterval(() => {
-  fetch(`${API}/orders`)
-    .then((r) => r.json())
-    .then((orders) => {
-      const newCount = orders.filter((o) => o.status === "new").length;
-      if (newCount > lastNewCount) {
-        document.getElementById("notifySound").play();
-      }
-      lastNewCount = newCount;
-    });
-}, 5000);
-
 function getStatusText(status) {
-  switch (status) {
-    case "new":
-      return "Новая";
-    case "assigned":
-      return "Машина назначена";
-    case "completed":
-      return "Завершён";
-    default:
-      return status;
-  }
+  return (
+    { new: "Новая", assigned: "Машина назначена", completed: "Завершён" }[
+      status
+    ] || status
+  );
 }
 
 function openEditModal(orderId) {
@@ -426,26 +351,22 @@ async function saveOrderChanges() {
     note: document.getElementById("editNote").value,
   };
 
-  try {
-    const res = await fetch(`${API}/orders/${currentOrderId}`, {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${localStorage.getItem("token")}`,
-      },
-      body: JSON.stringify(data),
-    });
+  const res = await fetch(`${API}/orders/${currentOrderId}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${localStorage.getItem("token")}`,
+    },
+    body: JSON.stringify(data),
+  });
 
-    if (res.ok) {
-      alert("Заявка обновлена");
-      closeEditModal();
-      loadOrders();
-    } else {
-      const err = await res.json();
-      alert("Ошибка: " + (err.error || "неизвестно"));
-    }
-  } catch (e) {
-    alert("Ошибка связи");
+  if (res.ok) {
+    alert("Заявка обновлена");
+    closeEditModal();
+    loadOrders();
+  } else {
+    const err = await res.json();
+    alert("Ошибка: " + (err.error || "неизвестно"));
   }
 }
 
@@ -454,24 +375,16 @@ async function deleteOrder(orderId) {
     !confirm("Удалить заявку №" + orderId + "? Это действие нельзя отменить!")
   )
     return;
-
-  try {
-    const res = await fetch(`${API}/orders/${orderId}`, {
-      method: "DELETE",
-      headers: {
-        Authorization: `Bearer ${localStorage.getItem("token")}`,
-      },
-    });
-
-    if (res.ok) {
-      alert("Заявка удалена");
-      loadOrders();
-    } else {
-      const err = await res.json();
-      alert("Ошибка: " + (err.error || "нельзя удалить"));
-    }
-  } catch (e) {
-    alert("Ошибка связи");
+  const res = await fetch(`${API}/orders/${orderId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+  });
+  if (res.ok) {
+    alert("Заявка удалена");
+    loadOrders();
+  } else {
+    const err = await res.json();
+    alert("Ошибка: " + (err.error || "нельзя удалить"));
   }
 }
 
@@ -486,7 +399,6 @@ function showTab(tabId) {
 function printTTN(orderId) {
   window.open(`${API}/ttn/${orderId}`);
 }
-
 async function exportToExcel() {
   window.location = `${API}/export_orders`;
 }
