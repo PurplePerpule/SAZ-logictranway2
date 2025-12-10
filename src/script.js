@@ -65,6 +65,16 @@ async function buildRoute(cargos) {
 }
 
 async function sendOrderToDispatcher() {
+  const now = new Date();
+  const utc = now.getTime() + now.getTimezoneOffset() * 60000;
+  const minskTime = new Date(utc + 3 * 3600000); // +3 часа
+  const hours = minskTime.getHours();
+  const minutes = minskTime.getMinutes();
+
+  if (hours >= 12) {
+    alert("Заявки принимаются только до 12:00. Приходите завтра!");
+    return;
+  }
   const cargos = await loadCargos();
   if (cargos.length === 0) {
     return alert("Добавьте хотя бы один груз в список!");

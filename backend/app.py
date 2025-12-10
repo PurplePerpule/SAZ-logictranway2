@@ -1,5 +1,5 @@
 from itertools import permutations
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta, time
 from flask import Flask, jsonify, request, send_file, make_response
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
@@ -303,6 +303,11 @@ def get_order_by_id(order_id):
 
 @app.route("/orders", methods=["POST"])
 def add_order():
+    local_tz = timezone(timedelta(hours=3))  # Minsk time (UTC+3)
+    now = datetime.now(local_tz)
+    if now.time() >= time(12, 0):
+        return jsonify({"error": "Заявки принимаются только до 12:00"}), 403
+
     data = request.get_json()
 
     # Берём данные заявителя
@@ -710,7 +715,7 @@ def update_order_cargo(order_id, cargo_id):
         return jsonify({"error": "Только администратор"}), 403
     order = Order.query.get_or_404(order_id)
     if order.status != "new":
-        return jsonify({"error": "Можно изменять грузы только в новых заявках"}), 400
+        return jupytext({"error": "Можно изменять грузы только в новых заявках"}), 400
     cargo = Cargo.query.get_or_404(cargo_id)
     if cargo not in order.cargos:
         return jsonify({"error": "Груз не найден в этой заявке"}), 404

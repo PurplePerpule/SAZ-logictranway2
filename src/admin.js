@@ -1,7 +1,7 @@
 // @ts-nocheck
 const API = "";
 
-// Функция принудительного вывода времени по Москве (UTC+3)
+// Функция принудительного вывода времени по Москве (UTC+6)
 function formatMSK(dateString) {
   const date = new Date(dateString);
   const mskOffset = 6 * 60; // +3 часа в минутах
