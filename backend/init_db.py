@@ -81,7 +81,7 @@ sample_vehicles = [
         "capacity": 20000.0,
         "length": 6.0,
         "width": 2.4,
-        "height": 0.6,
+        "height": 2.600,
         "status": "free",
         "tent_type": "open"
     },
@@ -141,7 +141,7 @@ sample_vehicles = [
         "capacity": 20000.0,
         "length": 13.7,
         "width": 2.4,
-        "height": 0.5,
+        "height": 2.750,
         "status": "free",
         "tent_type": "open"
     },
@@ -153,7 +153,7 @@ sample_vehicles = [
         "capacity": 20000.0,
         "length": 13.7,
         "width": 2.4,
-        "height": 0.6,
+        "height": 2.6,
         "status": "free",
         "tent_type": "open"
     },
