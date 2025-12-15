@@ -1,5 +1,5 @@
 from itertools import permutations
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, time
 from flask import Flask, jsonify, request, send_file, make_response
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
@@ -306,7 +306,7 @@ def add_order():
     local_tz = timezone(timedelta(hours=3))
     now_local = datetime.now(local_tz)
 
-    if now_local.time() >= time(12, 0):
+    if now_local.time() >= time(18, 0):
         return jsonify({
             "error": "Заявки принимаются только до 12:00. "
                      "Пожалуйста, отправьте заявку завтра до 12:00."
