@@ -308,8 +308,8 @@ def add_order():
 
     if now_local.time() >= time(18, 0):
         return jsonify({
-            "error": "Заявки принимаются только до 12:00. "
-                     "Пожалуйста, отправьте заявку завтра до 12:00."
+            "error": "Заявки принимаются только до 12:30. "
+                     "Пожалуйста, отправьте заявку завтра до 12:30."
         }), 403
 
     data = request.get_json()
@@ -428,11 +428,15 @@ def suggest_vehicle(order_id):
     cargos = order.cargos
     if not cargos:
         return jsonify({"error": "В заявке нет грузов"}), 404
+
     cargo_list = [c.to_dict() for c in cargos]
     total_weight = sum(c["weight"] * c["quantity"] for c in cargo_list)
     max_l = max(c["length"] for c in cargo_list)
     max_w = max(c["width"] for c in cargo_list)
     max_h_single = max(c["height"] for c in cargo_list)
+
+    print(f"[DEBUG] Order #{order_id} tent_type: {order.tent_type}")
+    print(f"[DEBUG] Total weight: {total_weight}, max dimensions: {max_l}x{max_w}x{max_h_single}")
 
     def can_stack_in_height(cargos, v_height):
         heights = sorted([c["height"] * c["quantity"] for c in cargos], reverse=True)
@@ -444,38 +448,85 @@ def suggest_vehicle(order_id):
                 return False
         return True
 
-
+    # Ищем машины с указанным типом тента
     vehicles = Vehicle.query.filter(
-
         Vehicle.status == "free",
-
         Vehicle.tent_type == order.tent_type,
-
         Vehicle.status != "in_repair"
     ).all()
 
+    print(f"[DEBUG] Found {len(vehicles)} vehicles with tent_type='{order.tent_type}' and status='free':")
+    for v in vehicles:
+        print(f"  - {v.garage_number} ({v.brand}): {v.capacity}kg, {v.length}x{v.width}x{v.height}m")
 
     best = None
     min_extra = float("inf")
+    suitable_vehicles = []
+
     for v in vehicles:
         if (v.capacity >= total_weight and
             v.length >= max_l and
-            v.width >= max_w and
-            (v.height >= max_h_single or can_stack_in_height(cargo_list, v.height))):
-            extra = v.capacity - total_weight
-            if extra < min_extra:
-                min_extra = extra
-                best = v
+            v.width >= max_w):
+
+            height_check = v.height >= max_h_single or can_stack_in_height(cargo_list, v.height)
+
+            if height_check:
+                extra = v.capacity - total_weight
+                suitable_vehicles.append(v)
+                if extra < min_extra:
+                    min_extra = extra
+                    best = v
+                print(f"[DEBUG] Vehicle {v.garage_number} is suitable (extra: {extra}kg)")
+            else:
+                print(f"[DEBUG] Vehicle {v.garage_number} failed height check: {v.height} < {max_h_single}")
+        else:
+            print(f"[DEBUG] Vehicle {v.garage_number} failed capacity/dimensions check: {v.capacity}kg/{v.length}x{v.width}m vs required {total_weight}kg/{max_l}x{max_w}m")
+
     if best:
         return jsonify(best.to_dict())
-    return jsonify({"error": "Подходящая машина не найдена (проверьте тип тента)"}), 404
+
+    print(f"[DEBUG] No suitable vehicles with tent_type='{order.tent_type}'. Searching all free vehicles...")
+
+    # Если не нашли машину с нужным типом тента, ищем любую доступную
+    all_vehicles = Vehicle.query.filter(
+        Vehicle.status == "free",
+        Vehicle.status != "in_repair"
+    ).all()
+
+    for v in all_vehicles:
+        if (v.capacity >= total_weight and
+            v.length >= max_l and
+            v.width >= max_w):
+
+            height_check = v.height >= max_h_single or can_stack_in_height(cargo_list, v.height)
+
+            if height_check:
+                extra = v.capacity - total_weight
+                suitable_vehicles.append(v)
+                if extra < min_extra:
+                    min_extra = extra
+                    best = v
+
+    if best:
+        return jsonify({
+            "vehicle": best.to_dict(),
+            "warning": f"Не найдена машина с типом тента '{order.tent_type}'. Предлагается машина с типом тента '{best.tent_type}'"
+        })
+
+    print(f"[DEBUG] No suitable vehicles at all")
+    return jsonify({"error": f"Подходящая машина не найдена. Требования: {total_weight}кг, {max_l}x{max_w}x{max_h_single}м"}), 404
 
 @app.route("/match", methods=["POST"])
 def match_vehicle():
     data = request.get_json()
     cargo_inputs = data.get("cargos", [])
+    tent_type = data.get("tent_type", "closed")
+
+    print(f"[DEBUG] Match request: tent_type={tent_type}, cargos={len(cargo_inputs)}")
+
     if not cargo_inputs:
         return jsonify({"message": "No cargos provided"}), 400
+
     cargos = []
     for item in cargo_inputs:
         if isinstance(item, int):
@@ -483,18 +534,23 @@ def match_vehicle():
             cargos.append(cargo)
         else:
             cargos.append(item)
+
     cargo_list = []
     for c in cargos:
         if isinstance(c, dict):
             cargo_list.append(c)
         else:
             cargo_list.append(c.to_dict())
+
     if not cargo_list:
         return jsonify({"message": "No valid cargos"}), 400
+
     total_weight = sum(c["weight"] * c["quantity"] for c in cargo_list)
     max_l = max(c["length"] for c in cargo_list)
     max_w = max(c["width"] for c in cargo_list)
     max_h_single = max(c["height"] for c in cargo_list)
+
+    print(f"[DEBUG] Total weight: {total_weight}, max dimensions: {max_l}x{max_w}x{max_h_single}")
 
     def can_stack_in_height(cargos, vehicle_height):
         heights = sorted([c["height"] * c["quantity"] for c in cargos], reverse=True)
@@ -503,30 +559,24 @@ def match_vehicle():
             if total_stacked_height + h <= vehicle_height:
                 total_stacked_height += h
             else:
-                if h > vehicle_height:
-                    return False
                 return False
-        return total_stacked_height <= vehicle_height
+        return True
 
-
+    # Сначала ищем машины с указанным типом тента
     suitable_vehicles = Vehicle.query.filter(
-
         Vehicle.status == "free",
-
         Vehicle.capacity >= total_weight,
-
         Vehicle.length >= max_l,
-
         Vehicle.width >= max_w,
-
-        Vehicle.tent_type == data.get("tent_type", "closed"),
-
+        Vehicle.tent_type == tent_type,
         Vehicle.status != "in_repair"
     ).all()
 
+    print(f"[DEBUG] Found {len(suitable_vehicles)} vehicles with tent_type='{tent_type}'")
 
     best_vehicle = None
     min_extra_capacity = float("inf")
+
     for vehicle in suitable_vehicles:
         v_height = vehicle.height
         if v_height >= max_h_single:
@@ -538,6 +588,7 @@ def match_vehicle():
             if vehicle.capacity - total_weight < min_extra_capacity:
                 min_extra_capacity = vehicle.capacity - total_weight
                 best_vehicle = vehicle
+
     if best_vehicle:
         return jsonify({
             "message": "Suitable vehicle found",
@@ -550,6 +601,43 @@ def match_vehicle():
             },
             "note": "Грузы можно штабелировать по высоте" if best_vehicle.height < max_h_single else "Штабелирование не требуется",
         })
+
+    # Если не нашли с указанным типом тента, ищем любую подходящую
+    all_suitable_vehicles = Vehicle.query.filter(
+        Vehicle.status == "free",
+        Vehicle.capacity >= total_weight,
+        Vehicle.length >= max_l,
+        Vehicle.width >= max_w,
+        Vehicle.status != "in_repair"
+    ).all()
+
+    print(f"[DEBUG] Now searching all {len(all_suitable_vehicles)} vehicles regardless of tent type")
+
+    for vehicle in all_suitable_vehicles:
+        v_height = vehicle.height
+        if v_height >= max_h_single:
+            if vehicle.capacity - total_weight < min_extra_capacity:
+                min_extra_capacity = vehicle.capacity - total_weight
+                best_vehicle = vehicle
+            continue
+        if can_stack_in_height(cargo_list, v_height):
+            if vehicle.capacity - total_weight < min_extra_capacity:
+                min_extra_capacity = vehicle.capacity - total_weight
+                best_vehicle = vehicle
+
+    if best_vehicle:
+        return jsonify({
+            "message": "Suitable vehicle found (different tent type)",
+            "vehicle": best_vehicle.to_dict(),
+            "warning": f"Не найдена машина с типом тента '{tent_type}'. Предлагается машина с типом тента '{best_vehicle.tent_type}'",
+            "total_weight": total_weight,
+            "required_dimensions": {
+                "length": max_l,
+                "width": max_w,
+                "height_strategy": "stacked" if best_vehicle.height < max_h_single else "no_stacking",
+            },
+        })
+
     return jsonify({
         "message": "No suitable vehicle found",
         "required": {

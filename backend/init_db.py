@@ -1,4 +1,6 @@
-from app import Vehicle, app, db
+from app import Vehicle, User, app, db
+from werkzeug.security import generate_password_hash
+
 
 sample_vehicles = [
     {
@@ -196,12 +198,24 @@ sample_vehicles = [
 ]
 
 with app.app_context():
+    # Создаем все таблицы
     db.create_all()
+
+    # Добавляем пользователей, если их нет
+    if User.query.count() == 0:
+        user = User(username="user", password=generate_password_hash("sazwork205"), role="user")
+        admin = User(username="admin", password=generate_password_hash("sazadmin2025"), role="admin")
+        db.session.add(user)
+        db.session.add(admin)
+        print("Default users added to the database.")
+
+    # Добавляем транспортные средства, если их нет
     if Vehicle.query.count() == 0:
         for veh in sample_vehicles:
             new_vehicle = Vehicle(**veh)
             db.session.add(new_vehicle)
-        db.session.commit()
         print("Sample vehicles added to the database.")
-    else:
-        print("Database already has vehicles. Skipping insertion.")
+
+    # Сохраняем все изменения
+    db.session.commit()
+    print("Database initialization complete!")

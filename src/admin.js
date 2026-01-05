@@ -53,15 +53,33 @@ async function loadOrders() {
 async function suggestVehicle(orderId) {
   try {
     const res = await fetch(`${API}/suggest_vehicle/${orderId}`);
-    const vehicle = await res.json();
-    if (vehicle) {
-      document.getElementById("vehicleSelect").value = vehicle.id;
-      alert(`Рекомендована машина: ${vehicle.gos_number} (${vehicle.driver})`);
-    } else {
-      alert("Подходящая машина не найдена");
+    if (!res.ok) {
+      const errorData = await res.json();
+      throw new Error(errorData.error || "Не удалось подобрать машину");
     }
-  } catch (e) {
-    alert("Ошибка подбора");
+    const data = await res.json();
+
+    // Проверяем, есть ли поле vehicle в ответе (новый формат)
+    let vehicle;
+    if (data.vehicle) {
+      vehicle = data.vehicle;
+      // Если есть предупреждение о разном типе тента
+      if (data.warning) {
+        alert(data.warning);
+      }
+    } else if (data.id) {
+      // Старый формат: весь объект - это машина
+      vehicle = data;
+    } else {
+      throw new Error("Не удалось получить данные о машине");
+    }
+
+    // Устанавливаем выбранную машину в селекте
+    document.getElementById("vehicleSelect").value = vehicle.id;
+    alert(`Рекомендована машина: ${vehicle.gos_number} (${vehicle.driver})`);
+  } catch (error) {
+    console.error("Error:", error);
+    alert("Ошибка при подборе машины: " + error.message);
   }
 }
 
@@ -210,15 +228,51 @@ function openAssignModal(orderId) {
       fetch(`${API}/vehicles`)
         .then((r) => r.json())
         .then((vehicles) => {
-          const free = vehicles.filter((v) => v.status === "free");
+          // Показываем все машины, но выделяем свободные
           const select = document.getElementById("vehicleSelect");
           select.innerHTML = '<option value="">— Выберите машину —</option>';
-          free.forEach((v) => {
+
+          // Сначала добавляем свободные машины
+          const freeVehicles = vehicles.filter((v) => v.status === "free");
+          freeVehicles.forEach((v) => {
             const opt = document.createElement("option");
             opt.value = v.id;
-            opt.textContent = `${v.garage_number} — ${v.brand} (${v.driver}) — ${v.capacity} кг`;
+            opt.textContent = `${v.garage_number} — ${v.brand} (${v.driver}) — ${v.capacity} кг [Свободна]`;
             select.appendChild(opt);
           });
+
+          // Затем добавляем разделитель
+          const separator = document.createElement("option");
+          separator.disabled = true;
+          separator.textContent = "──────────";
+          select.appendChild(separator);
+
+          // Затем добавляем занятые машины
+          const busyVehicles = vehicles.filter(
+            (v) => v.status !== "free" && v.status !== "in_repair",
+          );
+          busyVehicles.forEach((v) => {
+            const opt = document.createElement("option");
+            opt.value = v.id;
+            opt.disabled = true;
+            opt.textContent = `${v.garage_number} — ${v.brand} (${v.driver}) — ${v.capacity} кг [Занята]`;
+            select.appendChild(opt);
+          });
+
+          // Затем добавляем машины в ремонте
+          const repairVehicles = vehicles.filter(
+            (v) => v.status === "in_repair",
+          );
+          repairVehicles.forEach((v) => {
+            const opt = document.createElement("option");
+            opt.value = v.id;
+            opt.disabled = true;
+            opt.textContent = `${v.garage_number} — ${v.brand} (${v.driver}) — ${v.capacity} кг [В ремонте]`;
+            select.appendChild(opt);
+          });
+
+          // Автоматически подбираем машину при открытии модального окна
+          suggestVehicle(orderId);
         });
     });
   document.getElementById("assignModal").style.display = "block";
@@ -232,12 +286,14 @@ function closeAssignModal() {
 async function assignVehicle() {
   const vehicleId = document.getElementById("vehicleSelect").value;
   if (!vehicleId || !currentOrderId) return alert("Выберите машину");
+
   try {
     const res = await fetch(`${API}/orders/${currentOrderId}/assign`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ vehicle_id: +vehicleId }),
     });
+
     if (res.ok) {
       alert("Машина успешно назначена!");
       closeAssignModal();
@@ -245,10 +301,11 @@ async function assignVehicle() {
       loadVehicles();
     } else {
       const err = await res.json();
-      alert("Ошибка: " + (err.error || "неизвестно"));
+      alert("Ошибка: " + (err.error || "Неизвестная ошибка"));
     }
   } catch (e) {
-    alert("Ошибка связи");
+    console.error("Ошибка назначения машины:", e);
+    alert("Ошибка связи с сервером");
   }
 }
 
