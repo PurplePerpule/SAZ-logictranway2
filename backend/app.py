@@ -77,7 +77,7 @@ class DraftCargo(db.Model):
     quantity = db.Column(db.Integer, nullable=False)
     departure = db.Column(db.String(200), nullable=False)
     destination = db.Column(db.String(200), nullable=False)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)  # Новая связь
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
 
     user = db.relationship('User', backref='draft_cargos')
 
@@ -137,7 +137,10 @@ class Order(db.Model):
     department = db.Column(db.String(100), nullable=False, default="Не указан")
     phone_number = db.Column(db.String(20), nullable=True)
     tent_type = db.Column(db.String(20), nullable=False, default="closed")
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)  # Новая связь
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+
+    # Новое поле: желаемое время отправления
+    preferred_departure_time = db.Column(db.DateTime, nullable=True)
 
     vehicle: Mapped["Vehicle"] = relationship("Vehicle", backref="orders")
     cargos: Mapped[List["Cargo"]] = relationship(
@@ -158,6 +161,8 @@ class Order(db.Model):
             "department": self.department,
             "phone_number": self.phone_number,
             "tent_type": self.tent_type,
+            "preferred_departure_time": self.preferred_departure_time.isoformat() if self.preferred_departure_time else None,
+            "user_id": self.user_id,
         }
 
 class Trip(db.Model):
@@ -430,6 +435,25 @@ def add_order():
     phone_number = data.get("phone_number") or current_user.phone_number
     tent_type = data.get("tent_type", "closed")
 
+    # Обрабатываем желаемое время отправления
+    preferred_departure_time = None
+    if data.get("preferred_departure_time"):
+        try:
+            # Парсим строку в формате "HH:MM" или "HH:MM:SS"
+            time_str = data["preferred_departure_time"]
+            # Если только часы и минуты
+            if ":" in time_str and len(time_str.split(":")) == 2:
+                hours, minutes = map(int, time_str.split(":"))
+                preferred_departure_time = datetime.combine(
+                    datetime.now().date(),
+                    time(hour=hours, minute=minutes)
+                )
+            else:
+                # Пытаемся парсить как ISO строку
+                preferred_departure_time = datetime.fromisoformat(time_str.replace("Z", "+00:00"))
+        except Exception as e:
+            return jsonify({"error": f"Неверный формат времени: {str(e)}"}), 400
+
     # Создаём заявку с привязкой к пользователю
     order = Order(
         applicant=applicant,
@@ -437,7 +461,8 @@ def add_order():
         phone_number=phone_number,
         tent_type=tent_type,
         status="new",
-        user_id=current_user.id  # Автоматическая привязка
+        user_id=current_user.id,
+        preferred_departure_time=preferred_departure_time
     )
     db.session.add(order)
     db.session.flush()
@@ -464,6 +489,7 @@ def add_order():
 
     db.session.commit()
     return jsonify(order.to_dict()), 201
+
 
 @app.route("/draft_cargos", methods=["GET"])
 @login_required
@@ -779,15 +805,22 @@ def export_orders():
     wb: Workbook = Workbook()
     ws: Worksheet = wb.active or wb.create_sheet("Рейсы")
     ws.title = "Рейсы"
-    ws.append(["ID", "Создано", "Статус", "Водитель", "Гос. номер", "Грузов", "Общий вес"])
+    ws.append(["ID", "Создано", "Желаемое время", "Статус", "Водитель", "Гос. номер", "Грузов", "Общий вес"])
     for o in orders:
         created = o.created_at.strftime("%d.%m.%Y %H:%M") if o.created_at else "-"
+
+        # Форматируем желаемое время
+        preferred_time = "-"
+        if o.preferred_departure_time:
+            preferred_time = o.preferred_departure_time.strftime("%H:%M")
+
         status = get_status_text(o.status)
         driver = o.vehicle.driver if o.vehicle else "-"
         gos_number = o.vehicle.gos_number if o.vehicle else "-"
         cargo_count = len(o.cargos)
         total_weight = sum(c.weight * c.quantity for c in o.cargos) if o.cargos else 0
-        ws.append([o.id, created, status, driver, gos_number, cargo_count, total_weight])
+        ws.append([o.id, created, preferred_time, status, driver, gos_number, cargo_count, total_weight])
+
     buffer = BytesIO()
     wb.save(buffer)
     buffer.seek(0)
@@ -861,13 +894,10 @@ def delete_order(id):
 
 
 @app.route("/orders/<int:id>", methods=["PUT"])
-
 @login_required
 def update_order(id):
-
     if not current_user.is_authenticated or current_user.role != "admin":
         return jsonify({"error": "Только администратор"}), 403
-
 
     order = Order.query.get_or_404(id)
     if order.status != "new":
@@ -880,6 +910,26 @@ def update_order(id):
     order.phone_number = data.get("phone_number", order.phone_number)
     order.tent_type = data.get("tent_type", order.tent_type)
     order.note = data.get("note", order.note)
+
+    # Обновляем желаемое время отправления
+    if "preferred_departure_time" in data:
+        if data["preferred_departure_time"]:
+            try:
+                time_str = data["preferred_departure_time"]
+                if ":" in time_str and len(time_str.split(":")) == 2:
+                    hours, minutes = map(int, time_str.split(":"))
+                    order.preferred_departure_time = datetime.combine(
+                        datetime.now().date(),
+                        time(hour=hours, minute=minutes)
+                    )
+                else:
+                    order.preferred_departure_time = datetime.fromisoformat(
+                        data["preferred_departure_time"].replace("Z", "+00:00")
+                    )
+            except Exception as e:
+                return jsonify({"error": f"Неверный формат времени: {str(e)}"}), 400
+        else:
+            order.preferred_departure_time = None
 
     db.session.commit()
     return jsonify(order.to_dict()), 200

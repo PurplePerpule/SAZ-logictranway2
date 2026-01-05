@@ -31,5 +31,12 @@ with app.app_context():
         conn.execute(text("ALTER TABLE user ADD COLUMN department VARCHAR(100)"))
         conn.execute(text("ALTER TABLE user ADD COLUMN phone_number VARCHAR(20)"))
 
+    try:
+        conn.execute(text("SELECT preferred_departure_time FROM `order` LIMIT 1"))
+        print("Колонка preferred_departure_time уже существует в таблице order")
+    except:
+        print("Добавляем колонку preferred_departure_time в таблицу order...")
+        conn.execute(text("ALTER TABLE `order` ADD COLUMN preferred_departure_time DATETIME"))
+
     conn.close()
     print("Миграция завершена успешно!")

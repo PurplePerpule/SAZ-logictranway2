@@ -107,6 +107,7 @@ async function sendOrderToDispatcher() {
     userData?.phone_number ||
     "";
   const tent_type = document.getElementById("tent_type").value;
+  const preferred_time = document.getElementById("preferred_time").value;
 
   if (!applicant) {
     return alert("Укажите ФИО заявителя!");
@@ -129,6 +130,7 @@ async function sendOrderToDispatcher() {
         department,
         phone_number: phone_number || null,
         tent_type,
+        preferred_departure_time: preferred_time || null,
       }),
     });
 
@@ -138,6 +140,7 @@ async function sendOrderToDispatcher() {
       document.getElementById("applicant").value = "";
       document.getElementById("department").value = "";
       document.getElementById("phone_number").value = "";
+      document.getElementById("preferred_time").value = "";
       myMap.geoObjects.removeAll();
       updateCargoList([]);
     } else {
@@ -148,37 +151,6 @@ async function sendOrderToDispatcher() {
     alert("Нет связи с сервером");
   }
 }
-
-// Проверяем авторизацию при загрузке страницы
-document.addEventListener("DOMContentLoaded", () => {
-  const token = localStorage.getItem("token");
-  if (!token) {
-    window.location.href = "login.html";
-    return;
-  }
-
-  // Загружаем данные пользователя для автозаполнения
-  fetch(`${API_URL}/me`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  })
-    .then((res) => res.json())
-    .then((userData) => {
-      if (userData.full_name) {
-        document.getElementById("applicant").value = userData.full_name;
-      }
-      if (userData.department) {
-        document.getElementById("department").value = userData.department;
-      }
-      if (userData.phone_number) {
-        document.getElementById("phone_number").value = userData.phone_number;
-      }
-    })
-    .catch((err) => {
-      console.error("Ошибка загрузки данных пользователя:", err);
-    });
-});
 
 async function pickCar() {
   const cargos = await loadCargos();

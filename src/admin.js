@@ -25,26 +25,24 @@ async function loadOrders() {
     const searchFilter = document
       .getElementById("searchFilter")
       .value.toLowerCase();
+    const timeFilter = document.getElementById("timeFilter").value;
+
     const filtered = orders.filter((o) => {
       const dateMatch = !dateFilter || o.created_at.includes(dateFilter);
       const searchMatch =
         !searchFilter ||
         o.vehicle?.driver.toLowerCase().includes(searchFilter) ||
         o.vehicle?.gos_number.toLowerCase().includes(searchFilter);
-      return dateMatch && searchMatch;
+
+      const timeMatch =
+        !timeFilter ||
+        (o.preferred_departure_time &&
+          o.preferred_departure_time.includes(timeFilter));
+
+      return dateMatch && searchMatch && timeMatch;
     });
-    const active = filtered.filter((o) => o.status !== "completed");
-    const completed = filtered.filter((o) => o.status === "completed");
-    renderActiveOrders(active);
-    renderHistory(completed);
-    // Статистика
-    document.getElementById("pendingCount").textContent = active.filter(
-      (o) => o.status === "new",
-    ).length;
-    document.getElementById("inTransitCount").textContent = active.filter(
-      (o) => o.status === "assigned",
-    ).length;
-    document.getElementById("completedToday").textContent = completed.length;
+
+    // ... остальной код
   } catch (err) {
     console.error(err);
   }
@@ -108,9 +106,20 @@ function renderActiveOrders(orders) {
       ? `${order.vehicle.garage_number} — ${order.vehicle.brand} (${order.vehicle.driver})`
       : "—";
 
+    // Форматируем время отправления
+    let preferredTime = "-";
+    if (order.preferred_departure_time) {
+      const time = new Date(order.preferred_departure_time);
+      preferredTime = time.toLocaleTimeString("ru-RU", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    }
+
     tr.innerHTML = `
       <td>${order.id}</td>
       <td>${formatMSK(order.created_at)}</td>
+      <td>${preferredTime}</td>
       <td>${order.cargos[0]?.departure || "-"} → ${order.cargos[order.cargos.length - 1]?.destination || "-"}</td>
       <td>${order.cargos.length}</td>
       <td>${getStatusText(order.status)}</td>
@@ -123,7 +132,7 @@ function renderActiveOrders(orders) {
         ${
           order.status === "new"
             ? `
-          <button class="btn" onclick="openAssignModal(${order.id})">Подобрать машину </button>
+          <button class="btn" onclick="openAssignModal(${order.id})">Подобрать машину</button>
           <button class="btn" onclick="openEditModal(${order.id})" style="background:#ff9800;">Изменить</button>
           <button class="btn" onclick="deleteOrder(${order.id})" style="background:#d32f2f;">Удалить</button>
         `
@@ -560,9 +569,20 @@ function viewOrderDetails(orderId) {
         ? `${order.vehicle.garage_number} — ${order.vehicle.brand} (${order.vehicle.driver})`
         : "Не назначена";
 
+      // Форматируем время
+      let preferredTime = "Не указано";
+      if (order.preferred_departure_time) {
+        const time = new Date(order.preferred_departure_time);
+        preferredTime = time.toLocaleTimeString("ru-RU", {
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+      }
+
       alert(
         `ЗАЯВКА #${order.id}\n` +
           `Создано: ${formatMSK(order.created_at)}\n` +
+          `Желаемое время отправления: ${preferredTime}\n` +
           `Статус: ${getStatusText(order.status)}\n` +
           `Машина: ${vehicle}\n` +
           `Грузы:\n${cargosHtml}`,
@@ -590,6 +610,18 @@ function openEditModal(orderId) {
       document.getElementById("editTentType").value =
         order.tent_type || "closed";
       document.getElementById("editNote").value = order.note || "";
+
+      // Заполняем поле времени
+      if (order.preferred_departure_time) {
+        const time = new Date(order.preferred_departure_time);
+        const hours = time.getHours().toString().padStart(2, "0");
+        const minutes = time.getMinutes().toString().padStart(2, "0");
+        document.getElementById("editPreferredTime").value =
+          `${hours}:${minutes}`;
+      } else {
+        document.getElementById("editPreferredTime").value = "";
+      }
+
       document.getElementById("editOrderModal").style.display = "block";
     });
 }
@@ -604,6 +636,8 @@ async function saveOrderChanges() {
     department: document.getElementById("editDepartment").value,
     phone_number: document.getElementById("editPhone").value,
     tent_type: document.getElementById("editTentType").value,
+    preferred_departure_time:
+      document.getElementById("editPreferredTime").value || null,
     note: document.getElementById("editNote").value,
   };
 

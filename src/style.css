@@ -44,6 +44,28 @@ button:hover {
     background: #0056b3;
 }
 
+input[type="time"] {
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+/* Стиль для отображения времени в таблице */
+.time-cell {
+    font-weight: bold;
+    color: #2196f3;
+}
+
+/* Подсветка срочных заявок (если время уже близко) */
+tr.urgent {
+    background-color: #fff3e0;
+}
+
+tr.urgent td {
+    color: #ff5722;
+}
+
 .btn-success {
     background: #28a745;
     color: white;

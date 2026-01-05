@@ -40,7 +40,21 @@
                 oninput="loadOrders()"
             />
         </div>
-
+        <div class="filter">
+            <input type="date" id="dateFilter" onchange="loadOrders()" />
+            <input
+                type="time"
+                id="timeFilter"
+                onchange="loadOrders()"
+                placeholder="Фильтр по времени"
+            />
+            <input
+                type="text"
+                id="searchFilter"
+                placeholder="Поиск по водителю/номеру"
+                oninput="loadOrders()"
+            />
+        </div>
         <!-- ЗАЯВКИ -->
         <div id="orders" class="tab active">
             <h2>Новые и активные заявки</h2>
@@ -49,6 +63,7 @@
                     <tr>
                         <th>ID</th>
                         <th>Создано</th>
+                        <th>Желаемое время</th>
                         <th>Маршрут</th>
                         <th>Грузов</th>
                         <th>Статус</th>
@@ -296,6 +311,13 @@
                     <option value="closed">Закрытый</option>
                     <option value="open">Открытый</option></select
                 ><br /><br />
+
+                <label>Желаемое время отправления (ЧЧ:ММ):</label>
+                <input
+                    type="time"
+                    id="editPreferredTime"
+                    class="fullwidth"
+                /><br /><br />
 
                 <label>Примечание:</label>
                 <textarea id="editNote" rows="3" class="fullwidth"></textarea
