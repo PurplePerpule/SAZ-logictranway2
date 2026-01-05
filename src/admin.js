@@ -278,6 +278,205 @@ function openAssignModal(orderId) {
   document.getElementById("assignModal").style.display = "block";
 }
 
+// Функции для работы с пользователями
+function openAddUserModal() {
+  document.getElementById("addUserModal").style.display = "block";
+}
+
+function closeAddUserModal() {
+  document.getElementById("addUserModal").style.display = "none";
+  document.getElementById("newUsername").value = "";
+  document.getElementById("newPassword").value = "";
+  document.getElementById("newFullName").value = "";
+  document.getElementById("newDepartment").value = "";
+  document.getElementById("newPhone").value = "";
+  document.getElementById("newRole").value = "user";
+}
+
+async function loadUsers() {
+  try {
+    const res = await fetch(`${API}/users`, {
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${localStorage.getItem("token")}`,
+      },
+    });
+    const users = await res.json();
+    renderUsers(users);
+  } catch (err) {
+    console.error("Ошибка загрузки пользователей:", err);
+  }
+}
+
+function renderUsers(users) {
+  const tbody = document.querySelector("#usersTable tbody");
+  if (!tbody) return;
+
+  tbody.innerHTML = "";
+  users.forEach((user) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+            <td>${user.id}</td>
+            <td>${user.username}</td>
+            <td>${user.full_name || "-"}</td>
+            <td>${user.department || "-"}</td>
+            <td>${user.phone_number || "-"}</td>
+            <td>${user.role === "admin" ? "Администратор" : "Пользователь"}</td>
+            <td>
+                <button class="btn" onclick="editUser(${user.id})">Изменить</button>
+                ${
+                  user.id !== currentUserId
+                    ? `<button class="btn" style="background:#d32f2f" onclick="deleteUser(${user.id})">Удалить</button>`
+                    : ""
+                }
+            </td>
+        `;
+    tbody.appendChild(tr);
+  });
+}
+
+async function addUser() {
+  const username = document.getElementById("newUsername").value.trim();
+  const password = document.getElementById("newPassword").value;
+  const fullName = document.getElementById("newFullName").value.trim();
+  const department = document.getElementById("newDepartment").value.trim();
+  const phone = document.getElementById("newPhone").value.trim();
+  const role = document.getElementById("newRole").value;
+
+  if (!username || !password) {
+    alert("Логин и пароль обязательны");
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API}/register`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${localStorage.getItem("token")}`,
+      },
+      body: JSON.stringify({
+        username,
+        password,
+        full_name: fullName || null,
+        department: department || null,
+        phone_number: phone || null,
+        role,
+      }),
+    });
+
+    if (res.ok) {
+      alert("Пользователь создан");
+      closeAddUserModal();
+      loadUsers();
+    } else {
+      const error = await res.json();
+      alert(error.error || "Ошибка создания пользователя");
+    }
+  } catch (err) {
+    console.error("Ошибка создания пользователя:", err);
+    alert("Ошибка соединения с сервером");
+  }
+}
+
+async function deleteUser(userId) {
+  if (!confirm("Удалить пользователя?")) return;
+
+  try {
+    const res = await fetch(`${API}/users/${userId}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem("token")}`,
+      },
+    });
+
+    if (res.ok) {
+      alert("Пользователь удалён");
+      loadUsers();
+    } else {
+      const error = await res.json();
+      alert(error.error || "Ошибка удаления пользователя");
+    }
+  } catch (err) {
+    console.error("Ошибка удаления пользователя:", err);
+    alert("Ошибка соединения с сервером");
+  }
+}
+
+async function editUser(userId) {
+  const newPassword = prompt(
+    "Введите новый пароль (оставьте пустым, чтобы не менять):",
+  );
+  const newFullName = prompt("Введите ФИО:", "");
+  const newDepartment = prompt("Введите отдел:", "");
+  const newPhone = prompt("Введите телефон:", "");
+
+  const updates = {};
+  if (newPassword) updates.password = newPassword;
+  if (newFullName !== null) updates.full_name = newFullName;
+  if (newDepartment !== null) updates.department = newDepartment;
+  if (newPhone !== null) updates.phone_number = newPhone;
+
+  if (Object.keys(updates).length === 0) return;
+
+  try {
+    const res = await fetch(`${API}/users/${userId}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${localStorage.getItem("token")}`,
+      },
+      body: JSON.stringify(updates),
+    });
+
+    if (res.ok) {
+      alert("Данные пользователя обновлены");
+      loadUsers();
+    } else {
+      const error = await res.json();
+      alert(error.error || "Ошибка обновления пользователя");
+    }
+  } catch (err) {
+    console.error("Ошибка обновления пользователя:", err);
+    alert("Ошибка соединения с сервером");
+  }
+}
+
+// Обновляем функцию showTab для загрузки пользователей
+function showTab(tabId) {
+  document
+    .querySelectorAll(".tab")
+    .forEach((t) => t.classList.remove("active"));
+  document.getElementById(tabId).classList.add("active");
+
+  if (tabId === "vehicles") loadVehicles();
+  if (tabId === "users") loadUsers(); // Загружаем пользователей при открытии вкладки
+}
+
+// Обновляем главную функцию для хранения ID текущего пользователя
+let currentUserId = null;
+
+async function loadCurrentUser() {
+  try {
+    const res = await fetch(`${API}/me`, {
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem("token")}`,
+      },
+    });
+    if (res.ok) {
+      const user = await res.json();
+      currentUserId = user.id;
+    }
+  } catch (err) {
+    console.error("Ошибка загрузки данных пользователя:", err);
+  }
+}
+
+// Вызываем при загрузке
+document.addEventListener("DOMContentLoaded", () => {
+  loadCurrentUser();
+});
+
 function closeAssignModal() {
   document.getElementById("assignModal").style.display = "none";
   currentOrderId = null;

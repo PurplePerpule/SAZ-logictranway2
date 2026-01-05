@@ -20,6 +20,8 @@
             <a href="#" onclick="showTab('history')">История рейсов</a>
 
             <a href="#" onclick="showTab('tracking')">Трекинг</a>
+
+            <a href="#" onclick="showTab('users')">Пользователи</a>
         </nav>
 
         <button onclick="exportToExcel()">Экспорт в Excel</button>
@@ -127,7 +129,77 @@
             </div>
             <div id="map" style="height: 400px; width: 100%"></div>
         </div>
+        <div id="users" class="tab">
+            <h2>Управление пользователями</h2>
 
+            <button
+                class="btn"
+                onclick="openAddUserModal()"
+                style="margin-bottom: 20px"
+            >
+                Добавить пользователя
+            </button>
+
+            <table id="usersTable">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Логин</th>
+                        <th>ФИО</th>
+                        <th>Отдел</th>
+                        <th>Телефон</th>
+                        <th>Роль</th>
+                        <th>Действия</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+
+        <div
+            id="addUserModal"
+            style="
+                display: none;
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.5);
+                z-index: 1001;
+            "
+        >
+            <div
+                style="
+                    background: white;
+                    margin: 50px auto;
+                    padding: 25px;
+                    width: 400px;
+                    border-radius: 8px;
+                "
+            >
+                <h3>Добавить пользователя</h3>
+                <div style="display: grid; gap: 10px">
+                    <input id="newUsername" placeholder="Логин" />
+                    <input
+                        id="newPassword"
+                        type="password"
+                        placeholder="Пароль"
+                    />
+                    <input id="newFullName" placeholder="ФИО" />
+                    <input id="newDepartment" placeholder="Отдел" />
+                    <input id="newPhone" placeholder="Телефон" />
+                    <select id="newRole">
+                        <option value="user">Пользователь</option>
+                        <option value="admin">Администратор</option>
+                    </select>
+                </div>
+                <div style="margin-top: 20px; text-align: right">
+                    <button onclick="closeAddUserModal()">Отмена</button>
+                    <button class="btn" onclick="addUser()">Создать</button>
+                </div>
+            </div>
+        </div>
         <!-- Модальное окно подбора машины -->
         <div
             id="assignModal"

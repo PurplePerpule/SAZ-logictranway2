@@ -197,19 +197,60 @@ sample_vehicles = [
     },
 ]
 
+sample_users = [
+    {
+        "username": "ivanov",
+        "password": "password123",
+        "role": "user",
+        "full_name": "Иванов Иван Иванович",
+        "department": "Отдел логистики",
+        "phone_number": "+375 29 123-45-67"
+    },
+    {
+        "username": "petrov",
+        "password": "password456",
+        "role": "user",
+        "full_name": "Петров Петр Петрович",
+        "department": "Производственный отдел",
+        "phone_number": "+375 29 234-56-78"
+    },
+    {
+        "username": "sidorova",
+        "password": "password789",
+        "role": "user",
+        "full_name": "Сидорова Мария Сергеевна",
+        "department": "Отдел снабжения",
+        "phone_number": "+375 29 345-67-89"
+    },
+    {
+        "username": "admin",
+        "password": "sazadmin2025",
+        "role": "admin",
+        "full_name": "Администратор Системы",
+        "department": "Администрация",
+        "phone_number": "+375 17 123-45-67"
+    }
+]
+
 with app.app_context():
     # Создаем все таблицы
     db.create_all()
 
-    # Добавляем пользователей, если их нет
-    if User.query.count() == 0:
-        user = User(username="user", password=generate_password_hash("sazwork205"), role="user")
-        admin = User(username="admin", password=generate_password_hash("sazadmin2025"), role="admin")
-        db.session.add(user)
-        db.session.add(admin)
-        print("Default users added to the database.")
+    # Добавляем пользователей
+    for user_data in sample_users:
+        if not User.query.filter_by(username=user_data["username"]).first():
+            user = User(
+                username=user_data["username"],
+                password=generate_password_hash(user_data["password"]),
+                role=user_data["role"],
+                full_name=user_data["full_name"],
+                department=user_data["department"],
+                phone_number=user_data["phone_number"]
+            )
+            db.session.add(user)
+            print(f"Added user: {user_data['username']}")
 
-    # Добавляем транспортные средства, если их нет
+    # Добавляем транспортные средства
     if Vehicle.query.count() == 0:
         for veh in sample_vehicles:
             new_vehicle = Vehicle(**veh)

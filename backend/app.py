@@ -77,6 +77,9 @@ class DraftCargo(db.Model):
     quantity = db.Column(db.Integer, nullable=False)
     departure = db.Column(db.String(200), nullable=False)
     destination = db.Column(db.String(200), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)  # Новая связь
+
+    user = db.relationship('User', backref='draft_cargos')
 
     def to_dict(self):
         return {
@@ -134,11 +137,13 @@ class Order(db.Model):
     department = db.Column(db.String(100), nullable=False, default="Не указан")
     phone_number = db.Column(db.String(20), nullable=True)
     tent_type = db.Column(db.String(20), nullable=False, default="closed")
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)  # Новая связь
 
     vehicle: Mapped["Vehicle"] = relationship("Vehicle", backref="orders")
     cargos: Mapped[List["Cargo"]] = relationship(
         "Cargo", secondary=order_cargo, backref="orders", lazy="joined"
     )
+    user = db.relationship('User', backref='orders')
 
     def to_dict(self):
         return {
@@ -173,18 +178,23 @@ class Trip(db.Model):
 
 
 class User(db.Model, UserMixin):
-
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password = db.Column(db.String(120), nullable=False)
     role = db.Column(db.String(20), nullable=False)
+    full_name = db.Column(db.String(100), nullable=True)  # Полное имя пользователя
+    department = db.Column(db.String(100), nullable=True)  # Отдел пользователя
+    phone_number = db.Column(db.String(20), nullable=True)  # Телефон пользователя
 
     def to_dict(self):
         return {
             "id": self.id,
             "username": self.username,
             "password": self.password,
-            "role": self.role
+            "role": self.role,
+            "full_name": self.full_name,
+            "department": self.department,
+            "phone_number": self.phone_number,
         }
 
 
@@ -206,7 +216,26 @@ def role_required(role):
 
     return wrapper
 
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = None
 
+        if 'Authorization' in request.headers:
+            token = request.headers['Authorization'].split(" ")[1]
+
+        if not token:
+            return jsonify({'error': 'Требуется авторизация'}), 401
+
+        try:
+            # Вместо JWT используем проверку через Flask-Login
+            if not current_user.is_authenticated:
+                return jsonify({'error': 'Неверный токен'}), 401
+        except:
+            return jsonify({'error': 'Неверный токен'}), 401
+
+        return f(*args, **kwargs)
+    return decorated
 
 @app.route("/login", methods=["POST"])
 
@@ -229,7 +258,83 @@ def logout():
     logout_user()
     return jsonify({"message": "Вышли из системы"})
 
+# Регистрация нового пользователя (только для админа)
+@app.route("/register", methods=["POST"])
+@login_required
+@role_required("admin")
+def register_user():
+    data = request.get_json()
 
+    if User.query.filter_by(username=data.get("username")).first():
+        return jsonify({"error": "Пользователь с таким логином уже существует"}), 400
+
+    new_user = User(
+        username=data["username"],
+        password=generate_password_hash(data["password"]),
+        role=data.get("role", "user"),
+        full_name=data.get("full_name"),
+        department=data.get("department"),
+        phone_number=data.get("phone_number")
+    )
+
+    db.session.add(new_user)
+    db.session.commit()
+
+    return jsonify({
+        "message": "Пользователь создан",
+        "user": new_user.to_dict()
+    }), 201
+
+# Получение списка пользователей (только для админа)
+@app.route("/users", methods=["GET"])
+@login_required
+@role_required("admin")
+def get_users():
+    users = User.query.all()
+    return jsonify([user.to_dict() for user in users])
+
+# Получение данных текущего пользователя
+@app.route("/me", methods=["GET"])
+@login_required
+def get_current_user():
+    return jsonify(current_user.to_dict())
+
+# Обновление данных пользователя
+@app.route("/users/<int:user_id>", methods=["PUT"])
+@login_required
+def update_user(user_id):
+    # Пользователь может редактировать только себя, админ - любого
+    if current_user.id != user_id and current_user.role != "admin":
+        return jsonify({"error": "Доступ запрещён"}), 403
+
+    user = User.query.get_or_404(user_id)
+    data = request.get_json()
+
+    if "password" in data:
+        user.password = generate_password_hash(data["password"])
+    if "full_name" in data:
+        user.full_name = data["full_name"]
+    if "department" in data:
+        user.department = data["department"]
+    if "phone_number" in data:
+        user.phone_number = data["phone_number"]
+
+    db.session.commit()
+    return jsonify(user.to_dict())
+
+# Удаление пользователя (только для админа)
+@app.route("/users/<int:user_id>", methods=["DELETE"])
+@login_required
+@role_required("admin")
+def delete_user(user_id):
+    user = User.query.get_or_404(user_id)
+
+    if user.id == current_user.id:
+        return jsonify({"error": "Нельзя удалить самого себя"}), 400
+
+    db.session.delete(user)
+    db.session.commit()
+    return jsonify({"message": "Пользователь удалён"}), 200
 
 
 #@app.route("/cargos", methods=["GET"])
@@ -292,8 +397,12 @@ def update_vehicle_status(id):
 
 
 @app.route("/orders", methods=["GET"])
+@login_required
 def get_orders():
-    orders = Order.query.all()
+    if current_user.role == "admin":
+        orders = Order.query.all()
+    else:
+        orders = Order.query.filter_by(user_id=current_user.id).all()
     return jsonify([o.to_dict() for o in orders])
 
 @app.route("/orders/<int:order_id>", methods=["GET"])
@@ -302,6 +411,7 @@ def get_order_by_id(order_id):
     return jsonify(order.to_dict())
 
 @app.route("/orders", methods=["POST"])
+@login_required
 def add_order():
     local_tz = timezone(timedelta(hours=3))
     now_local = datetime.now(local_tz)
@@ -314,25 +424,26 @@ def add_order():
 
     data = request.get_json()
 
-    # Берём данные заявителя
-    applicant = data.get("applicant", "Не указан")
-    department = data.get("department", "Не указан")
-    phone_number = data.get("phone_number")
+    # Используем данные из профиля пользователя, если не указаны другие
+    applicant = data.get("applicant") or current_user.full_name or "Не указан"
+    department = data.get("department") or current_user.department or "Не указан"
+    phone_number = data.get("phone_number") or current_user.phone_number
     tent_type = data.get("tent_type", "closed")
 
-    # Создаём заявку
+    # Создаём заявку с привязкой к пользователю
     order = Order(
         applicant=applicant,
         department=department,
         phone_number=phone_number,
         tent_type=tent_type,
-        status="new"
+        status="new",
+        user_id=current_user.id  # Автоматическая привязка
     )
     db.session.add(order)
-    db.session.flush()  # Чтобы получить order.id
+    db.session.flush()
 
-    # Копируем ВСЕ грузы из черновика в заявку
-    draft_cargos = DraftCargo.query.all()
+    # Копируем грузы из черновика текущего пользователя
+    draft_cargos = DraftCargo.query.filter_by(user_id=current_user.id).all()
     for draft in draft_cargos:
         cargo = Cargo(
             name=draft.name,
@@ -348,35 +459,39 @@ def add_order():
         db.session.flush()
         order.cargos.append(cargo)
 
-    # ОЧИЩАЕМ ЧЕРНОВИК
-    DraftCargo.query.delete()
+    # Очищаем черновик текущего пользователя
+    DraftCargo.query.filter_by(user_id=current_user.id).delete()
 
     db.session.commit()
     return jsonify(order.to_dict()), 201
 
 @app.route("/draft_cargos", methods=["GET"])
+@login_required
 def get_draft_cargos():
-    cargos = DraftCargo.query.all()
+    cargos = DraftCargo.query.filter_by(user_id=current_user.id).all()
     return jsonify([c.to_dict() for c in cargos])
 
 @app.route("/draft_cargos", methods=["POST"])
+@login_required
 def add_draft_cargo():
     data = request.get_json()
-    cargo = DraftCargo(**data)
+    cargo = DraftCargo(**data, user_id=current_user.id)  # Привязка к пользователю
     db.session.add(cargo)
     db.session.commit()
     return jsonify(cargo.to_dict()), 201
 
 @app.route("/draft_cargos/<int:id>", methods=["DELETE"])
+@login_required
 def delete_draft_cargo(id):
-    cargo = DraftCargo.query.get_or_404(id)
+    cargo = DraftCargo.query.filter_by(id=id, user_id=current_user.id).first_or_404()
     db.session.delete(cargo)
     db.session.commit()
     return jsonify({"message": "Удалено"})
 
 @app.route("/draft_cargos/clear", methods=["DELETE"])
+@login_required
 def clear_draft_cargos():
-    DraftCargo.query.delete()
+    DraftCargo.query.filter_by(user_id=current_user.id).delete()
     db.session.commit()
     return jsonify({"message": "Черновик очищен"})
 

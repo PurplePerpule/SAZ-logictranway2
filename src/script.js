@@ -70,9 +70,42 @@ async function sendOrderToDispatcher() {
     return alert("Добавьте хотя бы один груз в список!");
   }
 
-  const applicant = document.getElementById("applicant").value.trim();
-  const department = document.getElementById("department").value.trim();
-  const phone_number = document.getElementById("phone_number").value.trim();
+  // Проверяем, залогинен ли пользователь
+  const token = localStorage.getItem("token");
+  if (!token) {
+    alert("Для отправки заявки необходимо войти в систему");
+    window.location.href = "login.html";
+    return;
+  }
+
+  // Получаем данные пользователя
+  let userData = null;
+  try {
+    const res = await fetch(`${API_URL}/me`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    if (res.ok) {
+      userData = await res.json();
+    }
+  } catch (err) {
+    console.error("Ошибка получения данных пользователя:", err);
+  }
+
+  // Используем данные из профиля по умолчанию
+  const applicant =
+    document.getElementById("applicant").value.trim() ||
+    userData?.full_name ||
+    "";
+  const department =
+    document.getElementById("department").value.trim() ||
+    userData?.department ||
+    "";
+  const phone_number =
+    document.getElementById("phone_number").value.trim() ||
+    userData?.phone_number ||
+    "";
   const tent_type = document.getElementById("tent_type").value;
 
   if (!applicant) {
@@ -87,7 +120,10 @@ async function sendOrderToDispatcher() {
   try {
     const res = await fetch(`${API_URL}/orders`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
       body: JSON.stringify({
         applicant,
         department,
@@ -112,6 +148,37 @@ async function sendOrderToDispatcher() {
     alert("Нет связи с сервером");
   }
 }
+
+// Проверяем авторизацию при загрузке страницы
+document.addEventListener("DOMContentLoaded", () => {
+  const token = localStorage.getItem("token");
+  if (!token) {
+    window.location.href = "login.html";
+    return;
+  }
+
+  // Загружаем данные пользователя для автозаполнения
+  fetch(`${API_URL}/me`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+    .then((res) => res.json())
+    .then((userData) => {
+      if (userData.full_name) {
+        document.getElementById("applicant").value = userData.full_name;
+      }
+      if (userData.department) {
+        document.getElementById("department").value = userData.department;
+      }
+      if (userData.phone_number) {
+        document.getElementById("phone_number").value = userData.phone_number;
+      }
+    })
+    .catch((err) => {
+      console.error("Ошибка загрузки данных пользователя:", err);
+    });
+});
 
 async function pickCar() {
   const cargos = await loadCargos();
