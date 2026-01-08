@@ -194,6 +194,7 @@ async function addToList() {
     quantity: parseInt(document.getElementById("quantity").value),
     departure: document.getElementById("departure").value,
     destination: document.getElementById("destination").value,
+    tent_type: document.getElementById("tent_type").value, // Добавляем тип тента
   };
 
   const {
@@ -230,17 +231,19 @@ function updateCargoList(cargos) {
   tbody.innerHTML = "";
   cargos.forEach((cargo) => {
     let row = document.createElement("tr");
+    const tentTypeText = cargo.tent_type === "open" ? "Открытый" : "Закрытый";
     row.innerHTML = `
-      <td>${cargo.name}</td>
-      <td>${cargo.weight}</td>
-      <td>${cargo.length}</td>
-      <td>${cargo.width}</td>
-      <td>${cargo.height}</td>
-      <td>${cargo.quantity}</td>
-      <td>${cargo.departure}</td>
-      <td>${cargo.destination}</td>
-      <td><button onclick="removeCargo(${cargo.id})">Удалить</button></td>
-    `;
+        <td>${cargo.name}</td>
+        <td>${cargo.weight}</td>
+        <td>${cargo.length}</td>
+        <td>${cargo.width}</td>
+        <td>${cargo.height}</td>
+        <td>${cargo.quantity}</td>
+        <td>${tentTypeText}</td> <!-- НОВАЯ ЯЧЕЙКА -->
+        <td>${cargo.departure}</td>
+        <td>${cargo.destination}</td>
+        <td><button onclick="removeCargo(${cargo.id})">Удалить</button></td>
+        `;
     tbody.appendChild(row);
   });
 }

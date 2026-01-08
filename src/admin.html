@@ -23,7 +23,59 @@
 
             <a href="#" onclick="showTab('users')">Пользователи</a>
         </nav>
+        <button
+            onclick="autoDistribute()"
+            style="
+                background: #4caf50;
+                color: white;
+                padding: 10px 20px;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+            "
+        >
+            📦 Автоматически распределить все заявки
+        </button>
 
+        <script>
+            async function autoDistribute() {
+                if (
+                    !confirm(
+                        "Выполнить автоматическое распределение всех нераспределенных заявок по доступным машинам?",
+                    )
+                ) {
+                    return;
+                }
+
+                try {
+                    const response = await fetch(`${API}/auto_distribute`, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            Authorization: `Bearer ${localStorage.getItem("token")}`,
+                        },
+                    });
+
+                    const result = await response.json();
+
+                    if (response.ok) {
+                        alert(
+                            `Распределение успешно выполнено!\n\nИспользовано машин: ${result.vehicles_used}\nРаспределено грузов: ${result.total_assigned}`,
+                        );
+                        // Обновляем списки
+                        loadOrders();
+                        loadVehicles();
+                    } else {
+                        alert(
+                            "Ошибка: " + (result.error || "Неизвестная ошибка"),
+                        );
+                    }
+                } catch (error) {
+                    console.error("Ошибка распределения:", error);
+                    alert("Ошибка соединения с сервером");
+                }
+            }
+        </script>
         <button onclick="exportToExcel()">Экспорт в Excel</button>
         <div class="stats" id="stats">
             <div>Ожидают: <span id="pendingCount">0</span></div>
@@ -71,7 +123,6 @@
                         <th>Заявитель</th>
                         <th>Отдел</th>
                         <th>Телефон</th>
-                        <th>Тип тента</th>
                         <th>Действие</th>
                     </tr>
                 </thead>

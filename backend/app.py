@@ -43,6 +43,7 @@ order_cargo = db.Table(
     db.Column("cargo_id", db.Integer, db.ForeignKey("cargo.id"), primary_key=True),
 )
 
+# В классе Cargo добавить поле tent_type
 class Cargo(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
@@ -53,6 +54,7 @@ class Cargo(db.Model):
     departure = db.Column(db.String(200), nullable=False)
     destination = db.Column(db.String(200), nullable=False)
     height = db.Column(db.Float, nullable=False)
+    tent_type = db.Column(db.String(20), nullable=False, default="closed")
 
     def to_dict(self):
         return {
@@ -65,6 +67,7 @@ class Cargo(db.Model):
             "departure": self.departure,
             "destination": self.destination,
             "height": self.height,
+            "tent_type": self.tent_type,
         }
 
 class DraftCargo(db.Model):
@@ -78,8 +81,7 @@ class DraftCargo(db.Model):
     departure = db.Column(db.String(200), nullable=False)
     destination = db.Column(db.String(200), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-
-    user = db.relationship('User', backref='draft_cargos')
+    tent_type = db.Column(db.String(20), nullable=False, default="closed")
 
     def to_dict(self):
         return {
@@ -92,6 +94,7 @@ class DraftCargo(db.Model):
             "quantity": self.quantity,
             "departure": self.departure,
             "destination": self.destination,
+            "tent_type": self.tent_type,
         }
 
 
@@ -136,10 +139,8 @@ class Order(db.Model):
     applicant = db.Column(db.String(100), nullable=False, default="Не указан")
     department = db.Column(db.String(100), nullable=False, default="Не указан")
     phone_number = db.Column(db.String(20), nullable=True)
-    tent_type = db.Column(db.String(20), nullable=False, default="closed")
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
 
-    # Новое поле: желаемое время отправления
     preferred_departure_time = db.Column(db.DateTime, nullable=True)
 
     vehicle: Mapped["Vehicle"] = relationship("Vehicle", backref="orders")
@@ -151,16 +152,15 @@ class Order(db.Model):
     def to_dict(self):
         return {
             "id": self.id,
-            "created_at": self.created_at.isoformat(),
+            "created_at": self.created_at.isoformat() if self.created_at else None,
             "status": self.status,
             "vehicle_id": self.vehicle_id,
-            "vehicle": self.vehicle.to_dict() if self.vehicle else None,
+            "vehicle": self.vehicle.to_dict() if self.vehicle else None,  # Это теперь лишнее, но оставим на всякий случай
             "cargos": [c.to_dict() for c in self.cargos],
             "note": self.note,
             "applicant": self.applicant,
             "department": self.department,
             "phone_number": self.phone_number,
-            "tent_type": self.tent_type,
             "preferred_departure_time": self.preferred_departure_time.isoformat() if self.preferred_departure_time else None,
             "user_id": self.user_id,
         }
@@ -405,10 +405,24 @@ def update_vehicle_status(id):
 @login_required
 def get_orders():
     if current_user.role == "admin":
+        # Админ видит все заявки
         orders = Order.query.all()
     else:
+        # Пользователь видит только свои заявки
         orders = Order.query.filter_by(user_id=current_user.id).all()
-    return jsonify([o.to_dict() for o in orders])
+
+    # Преобразуем в словари с правильными данными о машине
+    orders_data = []
+    for order in orders:
+        order_dict = order.to_dict()
+        # Убедимся, что vehicle существует и не None
+        if order.vehicle:
+            order_dict["vehicle"] = order.vehicle.to_dict()
+        else:
+            order_dict["vehicle"] = None
+        orders_data.append(order_dict)
+
+    return jsonify(orders_data)
 
 @app.route("/orders/<int:order_id>", methods=["GET"])
 def get_order_by_id(order_id):
@@ -429,19 +443,21 @@ def add_order():
 
     data = request.get_json()
 
-    # Используем данные из профиля пользователя, если не указаны другие
     applicant = data.get("applicant") or current_user.full_name or "Не указан"
     department = data.get("department") or current_user.department or "Не указан"
     phone_number = data.get("phone_number") or current_user.phone_number
-    tent_type = data.get("tent_type", "closed")
+
+    # УДАЛЯЕМ проверку на одинаковый тип тента
+    draft_cargos = DraftCargo.query.filter_by(user_id=current_user.id).all()
+
+    if not draft_cargos:
+        return jsonify({"error": "Нет грузов в заявке"}), 400
 
     # Обрабатываем желаемое время отправления
     preferred_departure_time = None
     if data.get("preferred_departure_time"):
         try:
-            # Парсим строку в формате "HH:MM" или "HH:MM:SS"
             time_str = data["preferred_departure_time"]
-            # Если только часы и минуты
             if ":" in time_str and len(time_str.split(":")) == 2:
                 hours, minutes = map(int, time_str.split(":"))
                 preferred_departure_time = datetime.combine(
@@ -449,7 +465,6 @@ def add_order():
                     time(hour=hours, minute=minutes)
                 )
             else:
-                # Пытаемся парсить как ISO строку
                 preferred_departure_time = datetime.fromisoformat(time_str.replace("Z", "+00:00"))
         except Exception as e:
             return jsonify({"error": f"Неверный формат времени: {str(e)}"}), 400
@@ -459,7 +474,7 @@ def add_order():
         applicant=applicant,
         department=department,
         phone_number=phone_number,
-        tent_type=tent_type,
+        # УДАЛЯЕМ: tent_type=tent_type,
         status="new",
         user_id=current_user.id,
         preferred_departure_time=preferred_departure_time
@@ -468,7 +483,6 @@ def add_order():
     db.session.flush()
 
     # Копируем грузы из черновика текущего пользователя
-    draft_cargos = DraftCargo.query.filter_by(user_id=current_user.id).all()
     for draft in draft_cargos:
         cargo = Cargo(
             name=draft.name,
@@ -479,6 +493,7 @@ def add_order():
             quantity=draft.quantity,
             departure=draft.departure,
             destination=draft.destination,
+            tent_type=draft.tent_type,  # Сохраняем тип тента груза
         )
         db.session.add(cargo)
         db.session.flush()
@@ -490,7 +505,6 @@ def add_order():
     db.session.commit()
     return jsonify(order.to_dict()), 201
 
-
 @app.route("/draft_cargos", methods=["GET"])
 @login_required
 def get_draft_cargos():
@@ -501,7 +515,18 @@ def get_draft_cargos():
 @login_required
 def add_draft_cargo():
     data = request.get_json()
-    cargo = DraftCargo(**data, user_id=current_user.id)  # Привязка к пользователю
+    cargo = DraftCargo(
+        name=data.get("name"),
+        weight=data.get("weight"),
+        length=data.get("length"),
+        width=data.get("width"),
+        height=data.get("height"),
+        quantity=data.get("quantity"),
+        departure=data.get("departure"),
+        destination=data.get("destination"),
+        tent_type=data.get("tent_type", "closed"),  # Добавляем тип тента
+        user_id=current_user.id
+    )
     db.session.add(cargo)
     db.session.commit()
     return jsonify(cargo.to_dict()), 201
@@ -553,13 +578,21 @@ def assign_vehicle(id):
 
 
 @app.route("/orders/<int:id>/complete", methods=["POST"])
+@login_required
 def complete_order(id):
     order = Order.query.get_or_404(id)
+
     if order.status != "assigned":
-        return jsonify({"error": "Рейс не назначен"}), 400
+        return jsonify({"error": "Рейс не назначен или уже завершен"}), 400
+
+    # Обновляем статус заявки
     order.status = "completed"
-    order.vehicle.status = "free"
-    order.vehicle.current_cargo_ids = None
+
+    # Освобождаем машину, если она есть
+    if order.vehicle:
+        order.vehicle.status = "free"
+        order.vehicle.current_cargo_ids = None
+
     db.session.commit()
     return jsonify({"message": "Рейс завершён"})
 
@@ -571,32 +604,43 @@ def suggest_vehicle(order_id):
         return jsonify({"error": "В заявке нет грузов"}), 404
 
     cargo_list = [c.to_dict() for c in cargos]
+
+    # Проверяем, есть ли грузы с разными типами тента
+    tent_types = set(c.get("tent_type", "closed") for c in cargo_list)
+    if len(tent_types) > 1:
+        return jsonify({"error": f"В заявке грузы с разными типами тента: {', '.join(tent_types)}. Невозможно подобрать одну машину."}), 400
+
+    # Берем тип тента из первого груза
+    required_tent_type = cargo_list[0].get("tent_type", "closed")
+
     total_weight = sum(c["weight"] * c["quantity"] for c in cargo_list)
     max_l = max(c["length"] for c in cargo_list)
     max_w = max(c["width"] for c in cargo_list)
     max_h_single = max(c["height"] for c in cargo_list)
 
-    print(f"[DEBUG] Order #{order_id} tent_type: {order.tent_type}")
+    print(f"[DEBUG] Order #{order_id} - required tent type: {required_tent_type}")
     print(f"[DEBUG] Total weight: {total_weight}, max dimensions: {max_l}x{max_w}x{max_h_single}")
 
     def can_stack_in_height(cargos, v_height):
-        heights = sorted([c["height"] * c["quantity"] for c in cargos], reverse=True)
-        total_stacked = 0
-        for h in heights:
-            if total_stacked + h <= v_height:
-                total_stacked += h
-            else:
-                return False
-        return True
+        # Преобразуем в плоский список высот (каждая единица груза отдельно)
+        heights = []
+        for c in cargos:
+            for _ in range(c["quantity"]):
+                heights.append(c["height"])
+        heights.sort(reverse=True)
+
+        # Простая проверка: все грузы должны помещаться по высоте
+        # Можно улучшить логику штабелирования при необходимости
+        return all(h <= v_height for h in heights)
 
     # Ищем машины с указанным типом тента
     vehicles = Vehicle.query.filter(
         Vehicle.status == "free",
-        Vehicle.tent_type == order.tent_type,
+        Vehicle.tent_type == required_tent_type,
         Vehicle.status != "in_repair"
     ).all()
 
-    print(f"[DEBUG] Found {len(vehicles)} vehicles with tent_type='{order.tent_type}' and status='free':")
+    print(f"[DEBUG] Found {len(vehicles)} vehicles with tent_type='{required_tent_type}' and status='free':")
     for v in vehicles:
         print(f"  - {v.garage_number} ({v.brand}): {v.capacity}kg, {v.length}x{v.width}x{v.height}m")
 
@@ -626,7 +670,7 @@ def suggest_vehicle(order_id):
     if best:
         return jsonify(best.to_dict())
 
-    print(f"[DEBUG] No suitable vehicles with tent_type='{order.tent_type}'. Searching all free vehicles...")
+    print(f"[DEBUG] No suitable vehicles with tent_type='{required_tent_type}'. Searching all free vehicles...")
 
     # Если не нашли машину с нужным типом тента, ищем любую доступную
     all_vehicles = Vehicle.query.filter(
@@ -651,19 +695,41 @@ def suggest_vehicle(order_id):
     if best:
         return jsonify({
             "vehicle": best.to_dict(),
-            "warning": f"Не найдена машина с типом тента '{order.tent_type}'. Предлагается машина с типом тента '{best.tent_type}'"
+            "warning": f"Не найдена машина с типом тента '{required_tent_type}'. Предлагается машина с типом тента '{best.tent_type}'"
         })
 
     print(f"[DEBUG] No suitable vehicles at all")
     return jsonify({"error": f"Подходящая машина не найдена. Требования: {total_weight}кг, {max_l}x{max_w}x{max_h_single}м"}), 404
 
+
+@app.route("/stats", methods=["GET"])
+@login_required
+def get_stats():
+    orders = Order.query.all()
+
+    pending = Order.query.filter_by(status="new").count()
+    assigned = Order.query.filter_by(status="assigned").count()
+
+    # Завершено сегодня
+    today = datetime.now(timezone.utc).date()
+    completed_today = Order.query.filter(
+        Order.status == "completed",
+        db.func.date(Order.created_at) == today
+    ).count()
+
+    return jsonify({
+        "pending": pending,
+        "assigned": assigned,
+        "completed_today": completed_today
+    })
+
 @app.route("/match", methods=["POST"])
 def match_vehicle():
     data = request.get_json()
     cargo_inputs = data.get("cargos", [])
-    tent_type = data.get("tent_type", "closed")
 
-    print(f"[DEBUG] Match request: tent_type={tent_type}, cargos={len(cargo_inputs)}")
+    # Теперь tent_type определяется по грузам, а не передается отдельно
+    print(f"[DEBUG] Match request: cargos={len(cargo_inputs)}")
 
     if not cargo_inputs:
         return jsonify({"message": "No cargos provided"}), 400
@@ -686,22 +752,31 @@ def match_vehicle():
     if not cargo_list:
         return jsonify({"message": "No valid cargos"}), 400
 
+    # Проверяем тип тента грузов
+    tent_types = set(c.get("tent_type", "closed") for c in cargo_list)
+    if len(tent_types) > 1:
+        return jsonify({
+            "message": "Грузы имеют разные типы тента",
+            "tent_types": list(tent_types)
+        }), 400
+
+    required_tent_type = list(tent_types)[0]
+
     total_weight = sum(c["weight"] * c["quantity"] for c in cargo_list)
     max_l = max(c["length"] for c in cargo_list)
     max_w = max(c["width"] for c in cargo_list)
     max_h_single = max(c["height"] for c in cargo_list)
 
+    print(f"[DEBUG] Required tent type: {required_tent_type}")
     print(f"[DEBUG] Total weight: {total_weight}, max dimensions: {max_l}x{max_w}x{max_h_single}")
 
     def can_stack_in_height(cargos, vehicle_height):
-        heights = sorted([c["height"] * c["quantity"] for c in cargos], reverse=True)
-        total_stacked_height = 0
-        for h in heights:
-            if total_stacked_height + h <= vehicle_height:
-                total_stacked_height += h
-            else:
-                return False
-        return True
+        heights = []
+        for c in cargos:
+            for _ in range(c["quantity"]):
+                heights.append(c["height"])
+        heights.sort(reverse=True)
+        return all(h <= vehicle_height for h in heights)
 
     # Сначала ищем машины с указанным типом тента
     suitable_vehicles = Vehicle.query.filter(
@@ -709,11 +784,11 @@ def match_vehicle():
         Vehicle.capacity >= total_weight,
         Vehicle.length >= max_l,
         Vehicle.width >= max_w,
-        Vehicle.tent_type == tent_type,
+        Vehicle.tent_type == required_tent_type,
         Vehicle.status != "in_repair"
     ).all()
 
-    print(f"[DEBUG] Found {len(suitable_vehicles)} vehicles with tent_type='{tent_type}'")
+    print(f"[DEBUG] Found {len(suitable_vehicles)} vehicles with tent_type='{required_tent_type}'")
 
     best_vehicle = None
     min_extra_capacity = float("inf")
@@ -770,7 +845,7 @@ def match_vehicle():
         return jsonify({
             "message": "Suitable vehicle found (different tent type)",
             "vehicle": best_vehicle.to_dict(),
-            "warning": f"Не найдена машина с типом тента '{tent_type}'. Предлагается машина с типом тента '{best_vehicle.tent_type}'",
+            "warning": f"Не найдена машина с типом тента '{required_tent_type}'. Предлагается машина с типом тента '{best_vehicle.tent_type}'",
             "total_weight": total_weight,
             "required_dimensions": {
                 "length": max_l,
@@ -787,8 +862,178 @@ def match_vehicle():
             "width": max_w,
             "height_single": max_h_single,
             "height_stacked_estimate": sum(c["height"] * c["quantity"] for c in cargo_list),
+            "tent_type": required_tent_type,
         },
     }), 404
+
+@app.route("/auto_distribute", methods=["POST"])
+@login_required
+@role_required("admin")
+def auto_distribute():
+    """
+    Автоматическое распределение всех нераспределенных грузов по доступным машинам
+    с учетом типа тента каждого груза
+    """
+    try:
+        # Получаем все заявки со статусом "new"
+        new_orders = Order.query.filter_by(status="new").all()
+
+        # Получаем все свободные машины
+        free_vehicles = Vehicle.query.filter_by(status="free").all()
+
+        if not free_vehicles:
+            return jsonify({"error": "Нет свободных машин"}), 400
+
+        if not new_orders:
+            return jsonify({"error": "Нет новых заявок для распределения"}), 400
+
+        # Собираем все нераспределенные грузы
+        all_cargos = []
+        for order in new_orders:
+            for cargo in order.cargos:
+                # Копируем данные груза с информацией о заявке
+                cargo_data = cargo.to_dict()
+                cargo_data["order_id"] = order.id
+                cargo_data["cargo_object"] = cargo  # Сохраняем объект для быстрого доступа
+                all_cargos.append(cargo_data)
+
+        if not all_cargos:
+            return jsonify({"error": "Нет грузов для распределения"}), 400
+
+        # Группируем грузы по типу тента
+        cargos_by_tent_type = {}
+        for cargo in all_cargos:
+            tent_type = cargo.get("tent_type", "closed")
+            if tent_type not in cargos_by_tent_type:
+                cargos_by_tent_type[tent_type] = []
+            cargos_by_tent_type[tent_type].append(cargo)
+
+        # Сортируем грузы в каждой группе по весу (от большего к меньшему)
+        for tent_type in cargos_by_tent_type:
+            cargos_by_tent_type[tent_type].sort(
+                key=lambda x: x["weight"] * x["quantity"],
+                reverse=True
+            )
+
+        # Группируем машины по типу тента
+        vehicles_by_tent_type = {}
+        for vehicle in free_vehicles:
+            if vehicle.tent_type not in vehicles_by_tent_type:
+                vehicles_by_tent_type[vehicle.tent_type] = []
+            vehicles_by_tent_type[vehicle.tent_type].append(vehicle)
+
+        # Сортируем машины в каждой группе по грузоподъемности (от большей к меньшей)
+        for tent_type in vehicles_by_tent_type:
+            vehicles_by_tent_type[tent_type].sort(
+                key=lambda x: x.capacity,
+                reverse=True
+            )
+
+        # Распределяем грузы
+        assignments = []
+        assigned_cargos = set()
+        assigned_orders = set()
+
+        # Для каждого типа тента распределяем грузы по машинам
+        for tent_type, cargos in cargos_by_tent_type.items():
+            if tent_type not in vehicles_by_tent_type:
+                continue  # Нет машин с таким типом тента
+
+            vehicles = vehicles_by_tent_type[tent_type]
+
+            for vehicle in vehicles:
+                if vehicle.status != "free":
+                    continue
+
+                vehicle_cargos = []
+                remaining_capacity = vehicle.capacity
+
+                for cargo in cargos:
+                    if cargo["id"] in assigned_cargos:
+                        continue
+
+                    cargo_weight = cargo["weight"] * cargo["quantity"]
+
+                    # Проверяем габариты
+                    if (cargo_weight <= remaining_capacity and
+                        cargo["length"] <= vehicle.length and
+                        cargo["width"] <= vehicle.width and
+                        cargo["height"] <= vehicle.height):
+
+                        vehicle_cargos.append(cargo)
+                        assigned_cargos.add(cargo["id"])
+                        assigned_orders.add(cargo["order_id"])
+                        remaining_capacity -= cargo_weight
+
+                if vehicle_cargos:
+                    # Создаем новую заявку для этой машины
+                    order_ids = list(set(c["order_id"] for c in vehicle_cargos))
+
+                    new_order = Order(
+                        status="assigned",
+                        vehicle_id=vehicle.id,
+                        applicant="Автоматическое распределение",
+                        department="Система",
+                        user_id=current_user.id,
+                        note=f"Автоматически распределено из заявок: {', '.join(map(str, order_ids))}"
+                    )
+
+                    db.session.add(new_order)
+                    db.session.flush()
+
+                    # Добавляем грузы в заявку
+                    for cargo_data in vehicle_cargos:
+                        cargo = cargo_data["cargo_object"]
+                        new_order.cargos.append(cargo)
+
+                    # Обновляем статус машины
+                    vehicle.status = "busy"
+
+                    assignments.append({
+                        "vehicle_id": vehicle.id,
+                        "vehicle_info": f"{vehicle.garage_number} - {vehicle.driver} ({vehicle.tent_type})",
+                        "order_id": new_order.id,
+                        "cargos_count": len(vehicle_cargos),
+                        "tent_type": tent_type,
+                        "assigned_orders": order_ids
+                    })
+
+        # Обновляем статус исходных заявок, все грузы которых были распределены
+        for order in new_orders:
+            order_cargos = [c.id for c in order.cargos]
+            if all(cargo_id in assigned_cargos for cargo_id in order_cargos):
+                order.status = "assigned"
+            elif any(cargo_id in assigned_cargos for cargo_id in order_cargos):
+                # Часть грузов распределена, часть осталась
+                order.note = f"Часть грузов распределена автоматически"
+
+        db.session.commit()
+
+        # Собираем статистику по типам тента
+        tent_stats = {}
+        for tent_type, cargos in cargos_by_tent_type.items():
+            tent_stats[tent_type] = {
+                "total": len(cargos),
+                "assigned": len([c for c in cargos if c["id"] in assigned_cargos])
+            }
+
+        return jsonify({
+            "message": "Распределение завершено",
+            "assignments": assignments,
+            "statistics": {
+                "total_cargos": len(all_cargos),
+                "assigned_cargos": len(assigned_cargos),
+                "total_orders": len(new_orders),
+                "assigned_orders": len(assigned_orders),
+                "vehicles_used": len(assignments),
+                "tent_type_stats": tent_stats
+            }
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Ошибка распределения: {str(e)}"}), 500
+
 
 def get_status_text(status):
     if status == "new":

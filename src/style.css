@@ -224,6 +224,18 @@ tr:last-child td {
     box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.15);
 }
 
+.status-new {
+    background-color: #fff3cd; /* Желтый для новых */
+}
+
+.status-assigned {
+    background-color: #d1ecf1; /* Голубой для назначенных */
+}
+
+.status-completed {
+    background-color: #d4edda; /* Зеленый для завершенных */
+}
+
 /* Кнопки в форме */
 .form-buttons {
     display: flex;

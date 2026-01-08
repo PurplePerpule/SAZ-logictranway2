@@ -63,16 +63,6 @@
                         style="width: 100%; padding: 10px; font-size: 16px"
                     />
                 </div>
-                <div class="form-group">
-                    <label>Тип тента</label>
-                    <select
-                        id="tent_type"
-                        style="width: 100%; padding: 10px; font-size: 16px"
-                    >
-                        <option value="closed">Закрытый (тент)</option>
-                        <option value="open">Открытый (бортовой)</option>
-                    </select>
-                </div>
             </div>
 
             <!-- БЛОК ДОБАВЛЕНИЯ ГРУЗА -->
@@ -170,6 +160,17 @@
                             />
                         </div>
                     </div>
+                    <div class="form-group">
+                        <label>Тип тента</label>
+                        <select
+                            id="tent_type"
+                            style="width: 100%; padding: 10px; font-size: 16px"
+                        >
+                            <option value="closed">Закрытый (тент)</option>
+                            <option value="open">Открытый (бортовой)</option>
+                        </select>
+                    </div>
+                    </div>
                     <button
                         type="button"
                         onclick="addToList()"
@@ -192,7 +193,18 @@
                 <h2>Грузы в заявке (<span id="cargoCount">0</span>)</h2>
                 <table id="cargoTable">
                     <thead>
-                        ...
+                        <tr>
+                            <th>Наименование</th>
+                            <th>Вес</th>
+                            <th>Длина</th>
+                            <th>Ширина</th>
+                            <th>Высота</th>
+                            <th>Кол-во</th>
+                            <th>Тип тента</th>
+                            <th>Откуда</th>
+                            <th>Куда</th>
+                            <th>Действие</th>
+                        </tr>
                     </thead>
                     <tbody></tbody>
                 </table>

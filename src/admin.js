@@ -17,34 +17,171 @@ function formatMSK(dateString) {
   });
 }
 
+function renderOrdersTable(orders) {
+  const tbody = document.querySelector("#ordersTable tbody");
+  if (!tbody) {
+    console.error("Не найден tbody таблицы заявок");
+    return;
+  }
+
+  tbody.innerHTML = "";
+
+  orders.forEach((order) => {
+    const tr = document.createElement("tr");
+    tr.className = `status-${order.status}`;
+
+    // Форматируем дату создания
+    let createdDate = "-";
+    if (order.created_at) {
+      const date = new Date(order.created_at);
+      createdDate = date.toLocaleString("ru-RU", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    }
+
+    // Форматируем желаемое время
+    let preferredTime = "-";
+    if (order.preferred_departure_time) {
+      const time = new Date(order.preferred_departure_time);
+      preferredTime = time.toLocaleTimeString("ru-RU", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    }
+
+    // Определяем маршрут
+    let route = "-";
+    if (order.cargos && order.cargos.length > 0) {
+      const first = order.cargos[0];
+      const last = order.cargos[order.cargos.length - 1];
+      route = `${first.departure || "-"} → ${last.destination || "-"}`;
+    }
+
+    // Информация о машине
+    let vehicleInfo = "-";
+    if (order.vehicle) {
+      vehicleInfo = `${order.vehicle.garage_number || ""} — ${order.vehicle.brand || ""} (${order.vehicle.driver || ""})`;
+    }
+
+    // Кнопки действий
+    let actionButtons = "";
+
+    if (order.status === "new") {
+      actionButtons = `
+        <button class="btn" onclick="openAssignModal(${order.id})">Подобрать машину</button>
+        <button class="btn" onclick="openEditModal(${order.id})" style="background:#ff9800;">Изменить</button>
+        <button class="btn" onclick="deleteOrder(${order.id})" style="background:#d32f2f;">Удалить</button>
+        <button class="btn" onclick="viewOrderDetails(${order.id})">Подробно</button>
+      `;
+    } else if (order.status === "assigned") {
+      actionButtons = `
+        <button class="btn" onclick="completeOrder(${order.id})">Завершить рейс</button>
+        <button class="btn" onclick="viewOrderDetails(${order.id})">Подробно</button>
+        <button class="btn" onclick="printTTN(${order.id})" style="background:#4caf50;">ТТН</button>
+      `;
+    } else if (order.status === "completed") {
+      actionButtons = `
+        <button class="btn" onclick="viewOrderDetails(${order.id})">Подробно</button>
+        <button class="btn" onclick="printTTN(${order.id})" style="background:#4caf50;">ТТН</button>
+      `;
+    } else {
+      actionButtons = `<button class="btn" onclick="viewOrderDetails(${order.id})">Подробно</button>`;
+    }
+
+    tr.innerHTML = `
+      <td>${order.id}</td>
+      <td>${createdDate}</td>
+      <td>${preferredTime}</td>
+      <td>${route}</td>
+      <td>${order.cargos ? order.cargos.length : 0}</td>
+      <td>${getStatusText(order.status)}</td>
+      <td>${vehicleInfo}</td>
+      <td>${order.applicant || "-"}</td>
+      <td>${order.department || "-"}</td>
+      <td>${order.phone_number || "-"}</td>
+      <td>${actionButtons}</td>
+    `;
+
+    tbody.appendChild(tr);
+  });
+}
+
+function updateStats(orders) {
+  // Счетчики
+  const pendingCount = orders.filter((o) => o.status === "new").length;
+  const inTransitCount = orders.filter((o) => o.status === "assigned").length;
+
+  // Завершено сегодня
+  const today = new Date().toISOString().split("T")[0];
+  const completedToday = orders.filter((o) => {
+    if (o.status !== "completed") return false;
+    if (!o.completed_at) return false;
+    const completedDate = new Date(o.completed_at).toISOString().split("T")[0];
+    return completedDate === today;
+  }).length;
+
+  // Обновляем DOM
+  document.getElementById("pendingCount").textContent = pendingCount;
+  document.getElementById("inTransitCount").textContent = inTransitCount;
+  document.getElementById("completedToday").textContent = completedToday;
+}
+
 async function loadOrders() {
   try {
-    const res = await fetch(`${API}/orders`);
-    const orders = await res.json();
-    const dateFilter = document.getElementById("dateFilter").value;
-    const searchFilter = document
-      .getElementById("searchFilter")
-      .value.toLowerCase();
-    const timeFilter = document.getElementById("timeFilter").value;
+    console.log("Загрузка заявок...");
 
-    const filtered = orders.filter((o) => {
-      const dateMatch = !dateFilter || o.created_at.includes(dateFilter);
-      const searchMatch =
-        !searchFilter ||
-        o.vehicle?.driver.toLowerCase().includes(searchFilter) ||
-        o.vehicle?.gos_number.toLowerCase().includes(searchFilter);
-
-      const timeMatch =
-        !timeFilter ||
-        (o.preferred_departure_time &&
-          o.preferred_departure_time.includes(timeFilter));
-
-      return dateMatch && searchMatch && timeMatch;
+    const res = await fetch(`${API}/orders`, {
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${localStorage.getItem("token")}`,
+      },
     });
 
-    // ... остальной код
+    if (!res.ok) {
+      console.error("Ошибка HTTP:", res.status);
+      throw new Error(`Ошибка HTTP: ${res.status}`);
+    }
+
+    const orders = await res.json();
+    console.log("Получено заявок:", orders.length, orders);
+
+    // Фильтрация (по желанию)
+    const dateFilter = document.getElementById("dateFilter")?.value;
+    const searchFilter =
+      document.getElementById("searchFilter")?.value?.toLowerCase() || "";
+
+    let filtered = orders;
+
+    if (dateFilter) {
+      filtered = filtered.filter((o) => {
+        const orderDate = o.created_at?.split("T")[0];
+        return orderDate === dateFilter;
+      });
+    }
+
+    if (searchFilter) {
+      filtered = filtered.filter((o) => {
+        const driver = o.vehicle?.driver?.toLowerCase() || "";
+        const gosNumber = o.vehicle?.gos_number?.toLowerCase() || "";
+        const applicant = o.applicant?.toLowerCase() || "";
+        return (
+          driver.includes(searchFilter) ||
+          gosNumber.includes(searchFilter) ||
+          applicant.includes(searchFilter)
+        );
+      });
+    }
+
+    // Рендерим ВСЕ заявки, а не только активные
+    renderOrdersTable(filtered);
+    updateStats(orders);
   } catch (err) {
-    console.error(err);
+    console.error("Ошибка загрузки заявок:", err);
+    alert("Ошибка загрузки заявок: " + err.message);
   }
 }
 
@@ -99,7 +236,11 @@ async function loadVehicles() {
 function renderActiveOrders(orders) {
   const tbody = document.querySelector("#ordersTable tbody");
   tbody.innerHTML = "";
-  orders.forEach((order) => {
+
+  // Фильтруем заявки по статусу (показываем только новые и назначенные)
+  const activeOrders = orders.filter((o) => o.status !== "completed");
+
+  activeOrders.forEach((order) => {
     const tr = document.createElement("tr");
     tr.className = `status-${order.status}`;
     const vehicleInfo = order.vehicle
@@ -116,18 +257,36 @@ function renderActiveOrders(orders) {
       });
     }
 
+    // Определяем маршрут
+    let route = "-";
+    if (order.cargos && order.cargos.length > 0) {
+      const first = order.cargos[0];
+      const last = order.cargos[order.cargos.length - 1];
+      route = `${first.departure} → ${last.destination}`;
+    }
+
+    // Определяем типы тента грузов
+    let tentTypes = "-";
+    if (order.cargos && order.cargos.length > 0) {
+      const types = [
+        ...new Set(order.cargos.map((c) => c.tent_type || "closed")),
+      ];
+      tentTypes = types
+        .map((t) => (t === "open" ? "Открытый" : "Закрытый"))
+        .join(", ");
+    }
+
     tr.innerHTML = `
       <td>${order.id}</td>
       <td>${formatMSK(order.created_at)}</td>
       <td>${preferredTime}</td>
-      <td>${order.cargos[0]?.departure || "-"} → ${order.cargos[order.cargos.length - 1]?.destination || "-"}</td>
-      <td>${order.cargos.length}</td>
+      <td>${route}</td>
+      <td>${order.cargos ? order.cargos.length : 0}</td>
       <td>${getStatusText(order.status)}</td>
       <td>${vehicleInfo}</td>
       <td>${order.applicant || "-"}</td>
       <td>${order.department || "-"}</td>
       <td>${order.phone_number || "-"}</td>
-      <td>${order.tent_type === "open" ? "Открытый" : "Закрытый"}</td>
       <td>
         ${
           order.status === "new"
@@ -482,9 +641,6 @@ async function loadCurrentUser() {
 }
 
 // Вызываем при загрузке
-document.addEventListener("DOMContentLoaded", () => {
-  loadCurrentUser();
-});
 
 function closeAssignModal() {
   document.getElementById("assignModal").style.display = "none";
@@ -563,7 +719,8 @@ function viewOrderDetails(orderId) {
     .then((order) => {
       let cargosHtml = "";
       order.cargos.forEach((c) => {
-        cargosHtml += `<li>${c.name} — ${c.weight}кг ×${c.quantity}, ${c.length}×${c.width}×${c.height}м, ${c.departure} → ${c.destination}</li>`;
+        const tentType = c.tent_type === "open" ? "Открытый" : "Закрытый";
+        cargosHtml += `<li>${c.name} — ${c.weight}кг ×${c.quantity}, ${c.length}×${c.width}×${c.height}м (${tentType}), ${c.departure} → ${c.destination}</li>`;
       });
       const vehicle = order.vehicle
         ? `${order.vehicle.garage_number} — ${order.vehicle.brand} (${order.vehicle.driver})`
@@ -585,45 +742,62 @@ function viewOrderDetails(orderId) {
           `Желаемое время отправления: ${preferredTime}\n` +
           `Статус: ${getStatusText(order.status)}\n` +
           `Машина: ${vehicle}\n` +
+          `Заявитель: ${order.applicant || "-"}\n` +
+          `Отдел: ${order.department || "-"}\n` +
+          `Телефон: ${order.phone_number || "-"}\n` +
           `Грузы:\n${cargosHtml}`,
       );
     });
 }
 
 function getStatusText(status) {
-  return (
-    { new: "Новая", assigned: "Машина назначена", completed: "Завершён" }[
-      status
-    ] || status
-  );
+  const statusMap = {
+    new: "Новая",
+    assigned: "Назначена",
+    completed: "Завершена",
+    in_progress: "В пути",
+  };
+  return statusMap[status] || status;
 }
 
-function openEditModal(orderId) {
-  fetch(`${API}/orders/${orderId}`)
-    .then((r) => r.json())
-    .then((order) => {
-      currentOrderId = orderId;
-      document.getElementById("editOrderId").textContent = order.id;
-      document.getElementById("editApplicant").value = order.applicant || "";
-      document.getElementById("editDepartment").value = order.department || "";
-      document.getElementById("editPhone").value = order.phone_number || "";
-      document.getElementById("editTentType").value =
-        order.tent_type || "closed";
-      document.getElementById("editNote").value = order.note || "";
-
-      // Заполняем поле времени
-      if (order.preferred_departure_time) {
-        const time = new Date(order.preferred_departure_time);
-        const hours = time.getHours().toString().padStart(2, "0");
-        const minutes = time.getMinutes().toString().padStart(2, "0");
-        document.getElementById("editPreferredTime").value =
-          `${hours}:${minutes}`;
-      } else {
-        document.getElementById("editPreferredTime").value = "";
-      }
-
-      document.getElementById("editOrderModal").style.display = "block";
+async function openEditModal(orderId) {
+  try {
+    const res = await fetch(`${API}/orders/${orderId}`, {
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem("token")}`,
+      },
     });
+
+    if (!res.ok) {
+      throw new Error("Не удалось загрузить заявку");
+    }
+
+    const order = await res.json();
+    currentOrderId = orderId;
+
+    // Заполняем поля формы
+    document.getElementById("editOrderId").textContent = order.id;
+    document.getElementById("editApplicant").value = order.applicant || "";
+    document.getElementById("editDepartment").value = order.department || "";
+    document.getElementById("editPhone").value = order.phone_number || "";
+    document.getElementById("editNote").value = order.note || "";
+
+    // Заполняем время
+    if (order.preferred_departure_time) {
+      const time = new Date(order.preferred_departure_time);
+      const hours = time.getHours().toString().padStart(2, "0");
+      const minutes = time.getMinutes().toString().padStart(2, "0");
+      document.getElementById("editPreferredTime").value =
+        `${hours}:${minutes}`;
+    } else {
+      document.getElementById("editPreferredTime").value = "";
+    }
+
+    document.getElementById("editOrderModal").style.display = "block";
+  } catch (error) {
+    console.error("Ошибка открытия модального окна:", error);
+    alert("Не удалось загрузить данные заявки");
+  }
 }
 
 function closeEditModal() {
@@ -700,3 +874,27 @@ setInterval(() => {
   if (document.getElementById("vehicles").classList.contains("active"))
     loadVehicles();
 }, 8000);
+
+// В конце файла, после определения всех функций
+document.addEventListener("DOMContentLoaded", function () {
+  console.log("DOM загружен, инициализация...");
+
+  // Проверка авторизации
+  const token = localStorage.getItem("token");
+  if (!token) {
+    window.location.href = "login.html";
+    return;
+  }
+
+  // Загрузка данных
+  loadOrders();
+  loadVehicles();
+
+  // Автообновление каждые 10 секунд
+  setInterval(() => {
+    loadOrders();
+    if (document.getElementById("vehicles").classList.contains("active")) {
+      loadVehicles();
+    }
+  }, 10000);
+});
