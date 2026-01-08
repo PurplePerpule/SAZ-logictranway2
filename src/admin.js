@@ -1,6 +1,9 @@
 // @ts-nocheck
 const API = "";
 
+let selectedOrders = [];
+let splitDialogOrderId = null;
+
 // Функция принудительного вывода времени по Москве (UTC+3)
 function formatMSK(dateString) {
   const date = new Date(dateString);
@@ -19,16 +22,15 @@ function formatMSK(dateString) {
 
 function renderOrdersTable(orders) {
   const tbody = document.querySelector("#ordersTable tbody");
-  if (!tbody) {
-    console.error("Не найден tbody таблицы заявок");
-    return;
-  }
-
   tbody.innerHTML = "";
 
   orders.forEach((order) => {
     const tr = document.createElement("tr");
     tr.className = `status-${order.status}`;
+
+    // Добавляем класс приоритета
+    if (order.priority === "high") tr.classList.add("priority-high");
+    if (order.priority === "low") tr.classList.add("priority-low");
 
     // Форматируем дату создания
     let createdDate = "-";
@@ -93,6 +95,9 @@ function renderOrdersTable(orders) {
     }
 
     tr.innerHTML = `
+      <td><input type="checkbox" class="order-checkbox" value="${order.id}" onchange="updateSelection()"></td>
+      <td>${order.id}</td>
+      <td>${createdDate}</td>
       <td>${order.id}</td>
       <td>${createdDate}</td>
       <td>${preferredTime}</td>
@@ -108,6 +113,65 @@ function renderOrdersTable(orders) {
 
     tbody.appendChild(tr);
   });
+}
+
+let selectedOrders = [];
+
+function toggleAllOrders(checkbox) {
+  const checkboxes = document.querySelectorAll(".order-checkbox");
+  checkboxes.forEach((cb) => (cb.checked = checkbox.checked));
+  updateSelection();
+}
+
+function updateSelection() {
+  const checkboxes = document.querySelectorAll(".order-checkbox:checked");
+  selectedOrders = Array.from(checkboxes).map((cb) => parseInt(cb.value));
+  document.getElementById("selectedCount").textContent =
+    `${selectedOrders.length} выбрано`;
+}
+
+// Диалог объединения
+function showMergeDialog() {
+  if (selectedOrders.length < 2) {
+    alert("Выберите минимум 2 заявки для объединения");
+    return;
+  }
+
+  const list = document.getElementById("selectedOrdersList");
+  list.innerHTML = selectedOrders
+    .map((id) => `<div>Заявка #${id}</div>`)
+    .join("");
+  document.getElementById("mergeDialog").style.display = "block";
+}
+
+function closeMergeDialog() {
+  document.getElementById("mergeDialog").style.display = "none";
+}
+
+async function confirmMerge() {
+  try {
+    const response = await fetch(`${API}/orders/merge`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${localStorage.getItem("token")}`,
+      },
+      body: JSON.stringify({ order_ids: selectedOrders }),
+    });
+
+    const result = await response.json();
+
+    if (response.ok) {
+      alert(`Заявки объединены в заявку #${result.new_order_id}`);
+      closeMergeDialog();
+      loadOrders();
+    } else {
+      alert("Ошибка: " + result.error);
+    }
+  } catch (error) {
+    console.error("Ошибка объединения:", error);
+    alert("Ошибка соединения с сервером");
+  }
 }
 
 function updateStats(orders) {
@@ -128,6 +192,116 @@ function updateStats(orders) {
   document.getElementById("pendingCount").textContent = pendingCount;
   document.getElementById("inTransitCount").textContent = inTransitCount;
   document.getElementById("completedToday").textContent = completedToday;
+}
+
+function sortOrders(column, type = "string") {
+  let orders = window.currentOrders || [];
+
+  orders.sort((a, b) => {
+    let valA = a[column];
+    let valB = b[column];
+
+    if (type === "date") {
+      valA = new Date(valA);
+      valB = new Date(valB);
+    }
+
+    if (valA < valB) return -1;
+    if (valA > valB) return 1;
+    return 0;
+  });
+
+  renderOrdersTable(orders);
+}
+
+async function previewVehicleLoad(vehicleId, orderIds) {
+  // Показать, как грузы будут размещены в машине
+  try {
+    const response = await fetch(`${API}/vehicles/${vehicleId}/load_preview`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${localStorage.getItem("token")}`,
+      },
+      body: JSON.stringify({ order_ids: orderIds }),
+    });
+
+    const result = await response.json();
+
+    // Показать визуализацию загрузки
+    showLoadPreview(result);
+  } catch (error) {
+    console.error("Ошибка предпросмотра:", error);
+  }
+}
+
+async function splitOrder() {
+  if (!splitDialogOrderId) return;
+
+  try {
+    // Для простоты разделяем на две равные части
+    const orderRes = await fetch(`${API}/orders/${splitDialogOrderId}`);
+    const order = await orderRes.json();
+
+    if (order.cargos.length < 2) {
+      alert("В заявке должен быть минимум 2 груза");
+      return;
+    }
+
+    // Разделяем грузы пополам
+    const mid = Math.ceil(order.cargos.length / 2);
+    const firstHalf = order.cargos.slice(0, mid).map((c) => c.id);
+    const secondHalf = order.cargos.slice(mid).map((c) => c.id);
+
+    const response = await fetch(`${API}/orders/${splitDialogOrderId}/split`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${localStorage.getItem("token")}`,
+      },
+      body: JSON.stringify({
+        split_groups: [firstHalf, secondHalf],
+      }),
+    });
+
+    const result = await response.json();
+
+    if (response.ok) {
+      alert(`Заявка разделена на ${result.groups_count} части`);
+      loadOrders();
+    } else {
+      alert("Ошибка: " + result.error);
+    }
+  } catch (error) {
+    console.error("Ошибка разделения:", error);
+    alert("Ошибка соединения с сервером");
+  }
+}
+
+function showPriorityDialog() {
+  if (selectedOrders.length === 0) {
+    alert("Выберите заявки для изменения приоритета");
+    return;
+  }
+
+  document.getElementById("priorityDialog").style.display = "block";
+}
+
+function closePriorityDialog() {
+  document.getElementById("priorityDialog").style.display = "none";
+}
+// Диалог разделения
+function showSplitDialog() {
+  if (selectedOrders.length !== 1) {
+    alert("Выберите одну заявку для разделения");
+    return;
+  }
+
+  splitDialogOrderId = selectedOrders[0];
+  // Здесь можно добавить более сложный интерфейс для распределения грузов
+  if (confirm(`Разделить заявку #${splitDialogOrderId} на две равные части?`)) {
+    splitOrder();
+  }
 }
 
 async function loadOrders() {
@@ -215,6 +389,38 @@ async function suggestVehicle(orderId) {
   } catch (error) {
     console.error("Error:", error);
     alert("Ошибка при подборе машины: " + error.message);
+  }
+}
+
+// Умное распределение
+async function autoDistributeSmart() {
+  if (!confirm("Выполнить умное распределение всех нераспределенных заявок?")) {
+    return;
+  }
+
+  try {
+    const response = await fetch(`${API}/auto_distribute_smart`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${localStorage.getItem("token")}`,
+      },
+    });
+
+    const result = await response.json();
+
+    if (response.ok) {
+      alert(
+        `Умное распределение завершено!\n\nОбработано заявок: ${result.statistics.orders_processed}\nИспользовано машин: ${result.statistics.vehicles_used}`,
+      );
+      loadOrders();
+      loadVehicles();
+    } else {
+      alert("Ошибка: " + result.error);
+    }
+  } catch (error) {
+    console.error("Ошибка распределения:", error);
+    alert("Ошибка соединения с сервером");
   }
 }
 
@@ -617,8 +823,19 @@ function showTab(tabId) {
     .forEach((t) => t.classList.remove("active"));
   document.getElementById(tabId).classList.add("active");
 
+  // Показывать/скрывать чекбоксы только во вкладке заявок
+  const selectionMode = document.getElementById("selectionMode");
+  if (tabId === "orders") {
+    selectionMode.style.display = "block";
+  } else {
+    selectionMode.style.display = "none";
+    // Сбрасываем выделение при переключении вкладок
+    selectedOrders = [];
+    updateSelection();
+  }
+
   if (tabId === "vehicles") loadVehicles();
-  if (tabId === "users") loadUsers(); // Загружаем пользователей при открытии вкладки
+  if (tabId === "users") loadUsers();
 }
 
 // Обновляем главную функцию для хранения ID текущего пользователя
@@ -804,6 +1021,31 @@ function closeEditModal() {
   document.getElementById("editOrderModal").style.display = "none";
 }
 
+async function savePriority() {
+  const priority = document.getElementById("prioritySelect").value;
+
+  try {
+    // Обновляем приоритет для каждой выбранной заявки
+    for (const orderId of selectedOrders) {
+      await fetch(`${API}/orders/${orderId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("token")}`,
+        },
+        body: JSON.stringify({ priority: priority }),
+      });
+    }
+
+    alert("Приоритеты обновлены");
+    closePriorityDialog();
+    loadOrders();
+  } catch (error) {
+    console.error("Ошибка обновления приоритета:", error);
+    alert("Ошибка соединения с сервером");
+  }
+}
+
 async function saveOrderChanges() {
   const data = {
     applicant: document.getElementById("editApplicant").value,
@@ -849,6 +1091,46 @@ async function deleteOrder(orderId) {
   } else {
     const err = await res.json();
     alert("Ошибка: " + (err.error || "нельзя удалить"));
+  }
+}
+
+async function mergeOrders() {
+  const selectedOrders = Array.from(
+    document.querySelectorAll(".order-checkbox:checked"),
+  ).map((cb) => parseInt(cb.value));
+
+  if (selectedOrders.length < 2) {
+    alert("Выберите минимум 2 заявки для объединения");
+    return;
+  }
+
+  if (
+    !confirm(`Объединить ${selectedOrders.length} выбранных заявок в одну?`)
+  ) {
+    return;
+  }
+
+  try {
+    const response = await fetch(`${API}/orders/merge`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${localStorage.getItem("token")}`,
+      },
+      body: JSON.stringify({ order_ids: selectedOrders }),
+    });
+
+    const result = await response.json();
+
+    if (response.ok) {
+      alert(`Заявки объединены в заявку #${result.new_order_id}`);
+      loadOrders();
+    } else {
+      alert("Ошибка: " + result.error);
+    }
+  } catch (error) {
+    console.error("Ошибка объединения:", error);
+    alert("Ошибка соединения с сервером");
   }
 }
 

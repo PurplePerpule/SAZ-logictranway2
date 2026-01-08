@@ -10,7 +10,7 @@ from functools import wraps
 from io import BytesIO
 from openpyxl.workbook.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
-
+from threading import Thread
 
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 import pdfkit
@@ -43,7 +43,7 @@ order_cargo = db.Table(
     db.Column("cargo_id", db.Integer, db.ForeignKey("cargo.id"), primary_key=True),
 )
 
-# В классе Cargo добавить поле tent_type
+
 class Cargo(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
@@ -55,6 +55,9 @@ class Cargo(db.Model):
     destination = db.Column(db.String(200), nullable=False)
     height = db.Column(db.Float, nullable=False)
     tent_type = db.Column(db.String(20), nullable=False, default="closed")
+
+    # Добавьте это отношение
+    orders = relationship("Order", secondary=order_cargo, back_populates="cargos")
 
     def to_dict(self):
         return {
@@ -82,6 +85,9 @@ class DraftCargo(db.Model):
     destination = db.Column(db.String(200), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     tent_type = db.Column(db.String(20), nullable=False, default="closed")
+
+    # Добавьте это отношение
+    user = relationship("User", back_populates="draft_cargos")
 
     def to_dict(self):
         return {
@@ -114,6 +120,9 @@ class Vehicle(db.Model):
     status = db.Column(db.String(50), nullable=False, default="free")
     tent_type = db.Column(db.String(20), nullable=False, default="closed")
 
+    # Добавьте это отношение
+    orders = relationship("Order", back_populates="vehicle")
+
     def to_dict(self):
         return {
             "id": self.id,
@@ -140,22 +149,21 @@ class Order(db.Model):
     department = db.Column(db.String(100), nullable=False, default="Не указан")
     phone_number = db.Column(db.String(20), nullable=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-
     preferred_departure_time = db.Column(db.DateTime, nullable=True)
+    priority = db.Column(db.String(20), default="normal")  # НОВОЕ: high, normal, low
 
-    vehicle: Mapped["Vehicle"] = relationship("Vehicle", backref="orders")
-    cargos: Mapped[List["Cargo"]] = relationship(
-        "Cargo", secondary=order_cargo, backref="orders", lazy="joined"
-    )
-    user = db.relationship('User', backref='orders')
+    # Добавьте эти отношения
+    cargos = relationship("Cargo", secondary=order_cargo, back_populates="orders")
+    vehicle = relationship("Vehicle", back_populates="orders")
+    user = relationship("User", back_populates="orders")
 
     def to_dict(self):
         return {
             "id": self.id,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_at": self.created_at.isoformat(),
             "status": self.status,
             "vehicle_id": self.vehicle_id,
-            "vehicle": self.vehicle.to_dict() if self.vehicle else None,  # Это теперь лишнее, но оставим на всякий случай
+            "vehicle": self.vehicle.to_dict() if self.vehicle else None,
             "cargos": [c.to_dict() for c in self.cargos],
             "note": self.note,
             "applicant": self.applicant,
@@ -163,6 +171,7 @@ class Order(db.Model):
             "phone_number": self.phone_number,
             "preferred_departure_time": self.preferred_departure_time.isoformat() if self.preferred_departure_time else None,
             "user_id": self.user_id,
+            "priority": self.priority,
         }
 
 class Trip(db.Model):
@@ -187,9 +196,13 @@ class User(db.Model, UserMixin):
     username = db.Column(db.String(80), unique=True, nullable=False)
     password = db.Column(db.String(120), nullable=False)
     role = db.Column(db.String(20), nullable=False)
-    full_name = db.Column(db.String(100), nullable=True)  # Полное имя пользователя
-    department = db.Column(db.String(100), nullable=True)  # Отдел пользователя
-    phone_number = db.Column(db.String(20), nullable=True)  # Телефон пользователя
+    full_name = db.Column(db.String(100), nullable=True)
+    department = db.Column(db.String(100), nullable=True)
+    phone_number = db.Column(db.String(20), nullable=True)
+
+    # Добавьте это отношение
+    orders = relationship("Order", back_populates="user")
+    draft_cargos = relationship("DraftCargo", back_populates="user")
 
     def to_dict(self):
         return {
@@ -866,167 +879,141 @@ def match_vehicle():
         },
     }), 404
 
-@app.route("/auto_distribute", methods=["POST"])
+@app.route("/auto_distribute_smart", methods=["POST"])
 @login_required
 @role_required("admin")
-def auto_distribute():
+def auto_distribute_smart():
     """
-    Автоматическое распределение всех нераспределенных грузов по доступным машинам
-    с учетом типа тента каждого груза
+    Умное автоматическое распределение с учетом:
+    - Приоритета заявок
+    - Времени отправления
+    - Группировки по направлениям
+    - Оптимизации загрузки
     """
     try:
-        # Получаем все заявки со статусом "new"
-        new_orders = Order.query.filter_by(status="new").all()
+        # Получаем все новые заявки
+        new_orders = Order.query.filter_by(status="new").order_by(
+            # Сначала по приоритету (high > normal > low)
+            Order.priority.desc(),
+            # Затем по времени отправления (раньше -> позже)
+            Order.preferred_departure_time.asc()
+        ).all()
 
-        # Получаем все свободные машины
+        # Получаем свободные машины
         free_vehicles = Vehicle.query.filter_by(status="free").all()
 
         if not free_vehicles:
             return jsonify({"error": "Нет свободных машин"}), 400
 
         if not new_orders:
-            return jsonify({"error": "Нет новых заявок для распределения"}), 400
+            return jsonify({"error": "Нет новых заявок"}), 400
 
-        # Собираем все нераспределенные грузы
-        all_cargos = []
+        # Группируем заявки по направлениям (по первому пункту назначения)
+        orders_by_direction = {}
         for order in new_orders:
-            for cargo in order.cargos:
-                # Копируем данные груза с информацией о заявке
-                cargo_data = cargo.to_dict()
-                cargo_data["order_id"] = order.id
-                cargo_data["cargo_object"] = cargo  # Сохраняем объект для быстрого доступа
-                all_cargos.append(cargo_data)
+            if order.cargos:
+                # Берем первый пункт назначения как ключ направления
+                first_destination = order.cargos[0].destination
+                if first_destination not in orders_by_direction:
+                    orders_by_direction[first_destination] = []
+                orders_by_direction[first_destination].append(order)
 
-        if not all_cargos:
-            return jsonify({"error": "Нет грузов для распределения"}), 400
-
-        # Группируем грузы по типу тента
-        cargos_by_tent_type = {}
-        for cargo in all_cargos:
-            tent_type = cargo.get("tent_type", "closed")
-            if tent_type not in cargos_by_tent_type:
-                cargos_by_tent_type[tent_type] = []
-            cargos_by_tent_type[tent_type].append(cargo)
-
-        # Сортируем грузы в каждой группе по весу (от большего к меньшему)
-        for tent_type in cargos_by_tent_type:
-            cargos_by_tent_type[tent_type].sort(
-                key=lambda x: x["weight"] * x["quantity"],
-                reverse=True
-            )
-
-        # Группируем машины по типу тента
-        vehicles_by_tent_type = {}
-        for vehicle in free_vehicles:
-            if vehicle.tent_type not in vehicles_by_tent_type:
-                vehicles_by_tent_type[vehicle.tent_type] = []
-            vehicles_by_tent_type[vehicle.tent_type].append(vehicle)
-
-        # Сортируем машины в каждой группе по грузоподъемности (от большей к меньшей)
-        for tent_type in vehicles_by_tent_type:
-            vehicles_by_tent_type[tent_type].sort(
-                key=lambda x: x.capacity,
-                reverse=True
-            )
-
-        # Распределяем грузы
+        # Распределение
         assignments = []
-        assigned_cargos = set()
-        assigned_orders = set()
+        used_vehicles = []
 
-        # Для каждого типа тента распределяем грузы по машинам
-        for tent_type, cargos in cargos_by_tent_type.items():
-            if tent_type not in vehicles_by_tent_type:
-                continue  # Нет машин с таким типом тента
-
-            vehicles = vehicles_by_tent_type[tent_type]
-
-            for vehicle in vehicles:
-                if vehicle.status != "free":
-                    continue
-
-                vehicle_cargos = []
-                remaining_capacity = vehicle.capacity
-
-                for cargo in cargos:
-                    if cargo["id"] in assigned_cargos:
-                        continue
-
-                    cargo_weight = cargo["weight"] * cargo["quantity"]
-
-                    # Проверяем габариты
-                    if (cargo_weight <= remaining_capacity and
-                        cargo["length"] <= vehicle.length and
-                        cargo["width"] <= vehicle.width and
-                        cargo["height"] <= vehicle.height):
-
-                        vehicle_cargos.append(cargo)
-                        assigned_cargos.add(cargo["id"])
-                        assigned_orders.add(cargo["order_id"])
-                        remaining_capacity -= cargo_weight
-
-                if vehicle_cargos:
-                    # Создаем новую заявку для этой машины
-                    order_ids = list(set(c["order_id"] for c in vehicle_cargos))
-
-                    new_order = Order(
-                        status="assigned",
-                        vehicle_id=vehicle.id,
-                        applicant="Автоматическое распределение",
-                        department="Система",
-                        user_id=current_user.id,
-                        note=f"Автоматически распределено из заявок: {', '.join(map(str, order_ids))}"
-                    )
-
-                    db.session.add(new_order)
-                    db.session.flush()
-
-                    # Добавляем грузы в заявку
-                    for cargo_data in vehicle_cargos:
-                        cargo = cargo_data["cargo_object"]
-                        new_order.cargos.append(cargo)
-
-                    # Обновляем статус машины
-                    vehicle.status = "busy"
-
-                    assignments.append({
-                        "vehicle_id": vehicle.id,
-                        "vehicle_info": f"{vehicle.garage_number} - {vehicle.driver} ({vehicle.tent_type})",
-                        "order_id": new_order.id,
-                        "cargos_count": len(vehicle_cargos),
-                        "tent_type": tent_type,
-                        "assigned_orders": order_ids
+        for direction, orders in orders_by_direction.items():
+            # Группируем грузы по типу тента для этого направления
+            cargos_by_tent = {}
+            for order in orders:
+                for cargo in order.cargos:
+                    tent_type = cargo.tent_type
+                    if tent_type not in cargos_by_tent:
+                        cargos_by_tent[tent_type] = []
+                    cargos_by_tent[tent_type].append({
+                        "cargo": cargo,
+                        "order_id": order.id
                     })
 
-        # Обновляем статус исходных заявок, все грузы которых были распределены
-        for order in new_orders:
-            order_cargos = [c.id for c in order.cargos]
-            if all(cargo_id in assigned_cargos for cargo_id in order_cargos):
-                order.status = "assigned"
-            elif any(cargo_id in assigned_cargos for cargo_id in order_cargos):
-                # Часть грузов распределена, часть осталась
-                order.note = f"Часть грузов распределена автоматически"
+            # Распределяем для каждого типа тента
+            for tent_type, cargo_items in cargos_by_tent.items():
+                # Находим машины с нужным типом тента
+                available_vehicles = [v for v in free_vehicles
+                                    if v.tent_type == tent_type and v.id not in used_vehicles]
+
+                if not available_vehicles:
+                    continue
+
+                # Сортируем грузы по объему (большие сначала)
+                cargo_items.sort(key=lambda x: x["cargo"].length * x["cargo"].width * x["cargo"].height,
+                               reverse=True)
+
+                # Алгоритм "First Fit Decreasing" для упаковки
+                for vehicle in available_vehicles:
+                    vehicle_cargos = []
+                    remaining_weight = vehicle.capacity
+                    remaining_volume = vehicle.length * vehicle.width * vehicle.height
+
+                    for item in cargo_items[:]:  # Копия для итерации
+                        cargo = item["cargo"]
+                        cargo_weight = cargo.weight * cargo.quantity
+                        cargo_volume = cargo.length * cargo.width * cargo.height * cargo.quantity
+
+                        if (cargo_weight <= remaining_weight and
+                            cargo_volume <= remaining_volume and
+                            cargo.length <= vehicle.length and
+                            cargo.width <= vehicle.width and
+                            cargo.height <= vehicle.height):
+
+                            vehicle_cargos.append(item)
+                            remaining_weight -= cargo_weight
+                            remaining_volume -= cargo_volume
+                            cargo_items.remove(item)  # Удаляем из списка доступных
+
+                    if vehicle_cargos:
+                        # Создаем объединенную заявку
+                        new_order = Order(
+                            status="assigned",
+                            vehicle_id=vehicle.id,
+                            applicant="Автоматическое объединение",
+                            department="Система",
+                            user_id=current_user.id,
+                            note=f"Объединены заявки: {', '.join(set(str(item['order_id']) for item in vehicle_cargos))}. Направление: {direction}"
+                        )
+
+                        db.session.add(new_order)
+                        db.session.flush()
+
+                        # Добавляем грузы
+                        for item in vehicle_cargos:
+                            new_order.cargos.append(item["cargo"])
+
+                        # Обновляем статусы исходных заявок
+                        for order_id in set(item['order_id'] for item in vehicle_cargos):
+                            order = Order.query.get(order_id)
+                            order.status = "assigned"
+                            order.note = f"Объединена в заявку #{new_order.id}"
+
+                        # Обновляем машину
+                        vehicle.status = "busy"
+                        used_vehicles.append(vehicle.id)
+
+                        assignments.append({
+                            "vehicle": vehicle.garage_number,
+                            "direction": direction,
+                            "cargos_count": len(vehicle_cargos),
+                            "new_order_id": new_order.id
+                        })
 
         db.session.commit()
 
-        # Собираем статистику по типам тента
-        tent_stats = {}
-        for tent_type, cargos in cargos_by_tent_type.items():
-            tent_stats[tent_type] = {
-                "total": len(cargos),
-                "assigned": len([c for c in cargos if c["id"] in assigned_cargos])
-            }
-
         return jsonify({
-            "message": "Распределение завершено",
+            "message": "Умное распределение завершено",
             "assignments": assignments,
             "statistics": {
-                "total_cargos": len(all_cargos),
-                "assigned_cargos": len(assigned_cargos),
-                "total_orders": len(new_orders),
-                "assigned_orders": len(assigned_orders),
-                "vehicles_used": len(assignments),
-                "tent_type_stats": tent_stats
+                "orders_processed": len(new_orders),
+                "vehicles_used": len(used_vehicles),
+                "directions_covered": len(orders_by_direction)
             }
         })
 
@@ -1180,6 +1167,139 @@ def update_order(id):
     return jsonify(order.to_dict()), 200
 
 
+@app.route("/orders/merge", methods=["POST"])
+@login_required
+@role_required("admin")
+def merge_orders():
+    """Объединение нескольких заявок в одну"""
+    try:
+        data = request.get_json()
+        order_ids = data.get("order_ids", [])
+
+        if len(order_ids) < 2:
+            return jsonify({"error": "Выберите минимум 2 заявки"}), 400
+
+        # Проверяем заявки
+        orders = Order.query.filter(Order.id.in_(order_ids)).all()
+
+        # Проверяем статусы (можно объединять только новые заявки)
+        for order in orders:
+            if order.status != "new":
+                return jsonify({"error": f"Заявка #{order.id} уже назначена"}), 400
+
+        # Проверяем совместимость типов тента грузов
+        all_cargos = []
+        for order in orders:
+            all_cargos.extend(order.cargos)
+
+        # Создаем новую объединенную заявку
+        merged_order = Order(
+            status="new",
+            applicant="Объединенная заявка",
+            department="Система",
+            user_id=current_user.id,
+            note=f"Объединены заявки: {', '.join(map(str, order_ids))}"
+        )
+
+        db.session.add(merged_order)
+        db.session.flush()
+
+        # Переносим грузы в новую заявку
+        for cargo in all_cargos:
+            # Отвязываем от старых заявок
+            for order in orders:
+                if cargo in order.cargos:
+                    order.cargos.remove(cargo)
+
+            # Добавляем в новую заявку
+            merged_order.cargos.append(cargo)
+
+        # Удаляем старые заявки
+        for order in orders:
+            db.session.delete(order)
+
+        db.session.commit()
+
+        return jsonify({
+            "message": "Заявки успешно объединены",
+            "new_order_id": merged_order.id,
+            "merged_orders": order_ids,
+            "cargos_count": len(all_cargos)
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Ошибка объединения: {str(e)}"}), 500
+
+
+@app.route("/orders/<int:order_id>/split", methods=["POST"])
+@login_required
+@role_required("admin")
+def split_order(order_id):
+    """Разделение заявки на несколько по разным машинам"""
+    try:
+        order = Order.query.get_or_404(order_id)
+
+        if order.status != "new":
+            return jsonify({"error": "Можно разделять только новые заявки"}), 400
+
+        if len(order.cargos) < 2:
+            return jsonify({"error": "В заявке должен быть минимум 2 груза"}), 400
+
+        data = request.get_json()
+        split_groups = data.get("split_groups", [])
+
+        if not split_groups:
+            return jsonify({"error": "Укажите группы для разделения"}), 400
+
+        # Проверяем, что все грузы распределены
+        all_cargo_ids = {cargo.id for cargo in order.cargos}
+        split_cargo_ids = {cargo_id for group in split_groups for cargo_id in group}
+
+        if all_cargo_ids != split_cargo_ids:
+            return jsonify({"error": "Не все грузы распределены по группам"}), 400
+
+        # Создаем новые заявки для каждой группы
+        new_orders = []
+        for i, group in enumerate(split_groups):
+            group_cargos = [cargo for cargo in order.cargos if cargo.id in group]
+
+            if not group_cargos:
+                continue
+
+            new_order = Order(
+                status="new",
+                applicant=order.applicant,
+                department=order.department,
+                phone_number=order.phone_number,
+                user_id=current_user.id,
+                note=f"Часть от заявки #{order_id} (группа {i+1})"
+            )
+
+            db.session.add(new_order)
+            db.session.flush()
+
+            # Переносим грузы
+            for cargo in group_cargos:
+                order.cargos.remove(cargo)
+                new_order.cargos.append(cargo)
+
+            new_orders.append(new_order)
+
+        # Удаляем исходную заявку
+        db.session.delete(order)
+        db.session.commit()
+
+        return jsonify({
+            "message": "Заявка разделена",
+            "original_order_id": order_id,
+            "new_orders": [o.id for o in new_orders],
+            "groups_count": len(new_orders)
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Ошибка разделения: {str(e)}"}), 500
 
 # Admin: CRUD for cargos in order (admin only, allowed only for 'new' orders)
 @app.route("/orders/<int:order_id>/cargos", methods=["GET"])
@@ -1298,6 +1418,25 @@ def after_request(response):
         response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, private'
 
     return response
+
+def check_order_deadlines():
+    """Проверяет заявки, у которых подходит срок отправления"""
+    while True:
+        with app.app_context():
+            now = datetime.now(timezone.utc)
+            urgent_orders = Order.query.filter(
+                Order.status == 'new',
+                Order.preferred_departure_time != None,
+                Order.preferred_departure_time <= now + timedelta(hours=2)
+            ).all()
+
+            for order in urgent_orders:
+                # Можно отправить уведомление
+                print(f"СРОЧНО: Заявка #{order.id} требует отправления в {order.preferred_departure_time}")
+
+        time.sleep(300)  # Проверять каждые 5 минут
+
+
 if __name__ == "__main__":
     with app.app_context():
         if not User.query.first():
@@ -1313,5 +1452,6 @@ if __name__ == "__main__":
             db.session.commit()
 
         db.create_all()
-
+        thread = Thread(target=check_order_deadlines, daemon=True)
+        thread.start()
     app.run(debug=True, port=5000)

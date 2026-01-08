@@ -244,6 +244,48 @@ tr:last-child td {
     margin-top: 25px;
 }
 
+.priority-high {
+    border-left: 4px solid #dc3545;
+    background-color: #fff5f5;
+}
+
+.priority-low {
+    opacity: 0.8;
+    background-color: #f8f9fa;
+}
+
+.status-new {
+    background-color: #fff3cd;
+}
+
+.status-assigned {
+    background-color: #d1ecf1;
+}
+
+.status-completed {
+    background-color: #d4edda;
+}
+
+.btn {
+    padding: 6px 12px;
+    margin: 2px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.btn:hover {
+    opacity: 0.9;
+    transform: translateY(-1px);
+}
+
+.quick-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+}
 /* ==================== АДМИНКА ==================== */
 nav {
     background: #2c3e50;
