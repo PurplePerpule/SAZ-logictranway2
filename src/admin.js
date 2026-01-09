@@ -1,7 +1,6 @@
 // @ts-nocheck
 const API = "";
 
-let selectedOrders = [];
 let splitDialogOrderId = null;
 
 // Функция принудительного вывода времени по Москве (UTC+3)
@@ -96,8 +95,6 @@ function renderOrdersTable(orders) {
 
     tr.innerHTML = `
       <td><input type="checkbox" class="order-checkbox" value="${order.id}" onchange="updateSelection()"></td>
-      <td>${order.id}</td>
-      <td>${createdDate}</td>
       <td>${order.id}</td>
       <td>${createdDate}</td>
       <td>${preferredTime}</td>
@@ -321,9 +318,9 @@ async function loadOrders() {
     }
 
     const orders = await res.json();
-    console.log("Получено заявок:", orders.length, orders);
+    console.log("Получено заявок:", orders.length, "Первая заявка:", orders[0]);
 
-    // Фильтрация (по желанию)
+    // Фильтрация
     const dateFilter = document.getElementById("dateFilter")?.value;
     const searchFilter =
       document.getElementById("searchFilter")?.value?.toLowerCase() || "";
@@ -350,7 +347,7 @@ async function loadOrders() {
       });
     }
 
-    // Рендерим ВСЕ заявки, а не только активные
+    console.log("После фильтрации:", filtered.length);
     renderOrdersTable(filtered);
     updateStats(orders);
   } catch (err) {
