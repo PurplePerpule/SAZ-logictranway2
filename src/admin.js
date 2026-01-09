@@ -813,28 +813,6 @@ async function editUser(userId) {
   }
 }
 
-// Обновляем функцию showTab для загрузки пользователей
-function showTab(tabId) {
-  document
-    .querySelectorAll(".tab")
-    .forEach((t) => t.classList.remove("active"));
-  document.getElementById(tabId).classList.add("active");
-
-  // Показывать/скрывать чекбоксы только во вкладке заявок
-  const selectionMode = document.getElementById("selectionMode");
-  if (tabId === "orders") {
-    selectionMode.style.display = "block";
-  } else {
-    selectionMode.style.display = "none";
-    // Сбрасываем выделение при переключении вкладок
-    selectedOrders = [];
-    updateSelection();
-  }
-
-  if (tabId === "vehicles") loadVehicles();
-  if (tabId === "users") loadUsers();
-}
-
 // Обновляем главную функцию для хранения ID текущего пользователя
 let currentUserId = null;
 
@@ -1136,7 +1114,20 @@ function showTab(tabId) {
     .querySelectorAll(".tab")
     .forEach((t) => t.classList.remove("active"));
   document.getElementById(tabId).classList.add("active");
+
+  // Показывать/скрывать чекбоксы только во вкладке заявок
+  const selectionMode = document.getElementById("selectionMode");
+  if (tabId === "orders") {
+    if (selectionMode) selectionMode.style.display = "block";
+  } else {
+    if (selectionMode) selectionMode.style.display = "none";
+    // Сбрасываем выделение при переключении вкладок
+    selectedOrders = [];
+    updateSelection();
+  }
+
   if (tabId === "vehicles") loadVehicles();
+  if (tabId === "users") loadUsers();
 }
 
 function printTTN(orderId) {
