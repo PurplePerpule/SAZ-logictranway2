@@ -869,7 +869,7 @@ async function loadVehicles() {
     const res = await fetch(`${API}/vehicles`, {
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
+        Authorization: `Bearer ${localStorage.getItem("token")}`,
       },
     });
     const vehicles = await res.json();
@@ -1000,7 +1000,10 @@ function applyVehicleStatus() {
 
   fetch(`${API}/vehicles/${vehicleSel.value}`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${localStorage.getItem("token")}`,
+    },
     body: JSON.stringify({ status: statusSel.value }),
   })
     .then(async (res) => {
@@ -1340,6 +1343,9 @@ async function completeOrder(orderId) {
   if (!confirm("Завершить рейс и освободить машину?")) return;
   const res = await fetch(`${API}/orders/${orderId}/complete`, {
     method: "POST",
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem("token")}`,
+    },
   });
   if (res.ok) {
     alert("Рейс завершён, машина освобождена");
