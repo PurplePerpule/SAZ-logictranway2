@@ -23,19 +23,6 @@
 
             <a href="#" onclick="showTab('users')">Пользователи</a>
         </nav>
-        <button
-            onclick="autoDistribute()"
-            style="
-                background: #4caf50;
-                color: white;
-                padding: 10px 20px;
-                border: none;
-                border-radius: 4px;
-                cursor: pointer;
-            "
-        >
-            📦 Автоматически распределить все заявки
-        </button>
 
         <script>
             async function autoDistribute() {
@@ -309,18 +296,161 @@
 
         <!-- ИСТОРИЯ -->
         <div id="history" class="tab">
-            <h2>Завершённые рейсы</h2>
-            <table id="historyTable">
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>Дата</th>
-                        <th>Машина</th>
-                        <th>Грузов</th>
-                    </tr>
-                </thead>
-                <tbody></tbody>
-            </table>
+            <h2>История рейсов 📊</h2>
+
+            <!-- Фильтры -->
+            <div
+                class="filters"
+                style="
+                    background: #f5f5f5;
+                    padding: 15px;
+                    border-radius: 8px;
+                    margin-bottom: 20px;
+                "
+            >
+                <div
+                    style="
+                        display: grid;
+                        grid-template-columns: repeat(
+                            auto-fit,
+                            minmax(200px, 1fr)
+                        );
+                        gap: 10px;
+                    "
+                >
+                    <div>
+                        <label>Дата с:</label>
+                        <input
+                            type="date"
+                            id="filterDateFrom"
+                            style="width: 100%; padding: 8px"
+                        />
+                    </div>
+                    <div>
+                        <label>Дата по:</label>
+                        <input
+                            type="date"
+                            id="filterDateTo"
+                            style="width: 100%; padding: 8px"
+                        />
+                    </div>
+                    <div>
+                        <label>Машина:</label>
+                        <select
+                            id="filterVehicle"
+                            style="width: 100%; padding: 8px"
+                        >
+                            <option value="">Все машины</option>
+                            <!-- Заполняется JavaScript -->
+                        </select>
+                    </div>
+                    <div>
+                        <label>Водитель:</label>
+                        <input
+                            type="text"
+                            id="filterDriver"
+                            placeholder="Фамилия водителя"
+                            style="width: 100%; padding: 8px"
+                        />
+                    </div>
+                    <div>
+                        <label>Статус:</label>
+                        <select
+                            id="filterStatus"
+                            style="width: 100%; padding: 8px"
+                        >
+                            <option value="">Все статусы</option>
+                            <option value="completed">Завершенные</option>
+                            <option value="in_progress">В процессе</option>
+                            <option value="cancelled">Отмененные</option>
+                        </select>
+                    </div>
+                </div>
+                <div style="margin-top: 15px; display: flex; gap: 10px">
+                    <button
+                        class="btn"
+                        onclick="applyHistoryFilters()"
+                        style="background: #2196f3"
+                    >
+                        Применить фильтры
+                    </button>
+                    <button
+                        class="btn"
+                        onclick="resetHistoryFilters()"
+                        style="background: #9e9e9e"
+                    >
+                        Сбросить
+                    </button>
+                    <button
+                        class="btn"
+                        onclick="exportHistoryToExcel()"
+                        style="background: #4caf50"
+                    >
+                        📊 Экспорт в Excel
+                    </button>
+                    <button
+                        class="btn"
+                        onclick="showTripStats()"
+                        style="background: #9c27b0"
+                    >
+                        📈 Статистика
+                    </button>
+                </div>
+            </div>
+
+            <!-- Статистика -->
+            <div
+                id="tripStats"
+                style="
+                    display: none;
+                    background: #e3f2fd;
+                    padding: 15px;
+                    border-radius: 8px;
+                    margin-bottom: 20px;
+                "
+            >
+                <h3 style="margin-top: 0">Статистика рейсов</h3>
+                <div id="statsContent"></div>
+            </div>
+
+            <!-- Таблица истории -->
+            <div style="overflow-x: auto">
+                <table id="historyTable">
+                    <thead>
+                        <tr>
+                            <th>ID рейса</th>
+                            <th>Заявка</th>
+                            <th>Дата начала</th>
+                            <th>Дата завершения</th>
+                            <th>Продолжительность</th>
+                            <th>Машина</th>
+                            <th>Водитель</th>
+                            <th>Маршруты</th>
+                            <th>Грузы</th>
+                            <th>Вес</th>
+                            <th>Объем</th>
+                            <th>Заявитель</th>
+                            <th>Статус</th>
+                            <th>Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+
+            <!-- Пагинация -->
+            <div
+                id="historyPagination"
+                style="margin-top: 20px; text-align: center"
+            >
+                <button class="btn" onclick="changeHistoryPage(-1)">
+                    ← Назад
+                </button>
+                <span id="historyPageInfo" style="margin: 0 15px"></span>
+                <button class="btn" onclick="changeHistoryPage(1)">
+                    Вперед →
+                </button>
+            </div>
         </div>
 
         <div id="tracking" class="tab">

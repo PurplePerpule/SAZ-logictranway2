@@ -2,6 +2,449 @@
 const API = "";
 
 let splitDialogOrderId = null;
+let currentHistoryPage = 1;
+let historyPageSize = 20;
+let totalHistoryPages = 1;
+let currentHistoryFilters = {};
+
+function showLoader() {
+  const loader = document.getElementById("loader");
+  if (!loader) {
+    // Создаем элемент загрузки если его нет
+    const loaderDiv = document.createElement("div");
+    loaderDiv.id = "loader";
+    loaderDiv.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+        `;
+    loaderDiv.innerHTML = `
+            <div style="text-align: center;">
+                <div style="
+                    width: 40px;
+                    height: 40px;
+                    border: 4px solid #f3f3f3;
+                    border-top: 4px solid #3498db;
+                    border-radius: 50%;
+                    animation: spin 1s linear infinite;
+                    margin: 0 auto;
+                "></div>
+                <p style="margin-top: 10px;">Загрузка...</p>
+            </div>
+        `;
+    document.body.appendChild(loaderDiv);
+
+    // Добавляем анимацию
+    const style = document.createElement("style");
+    style.innerHTML = `
+            @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+            }
+        `;
+    document.head.appendChild(style);
+  } else {
+    loader.style.display = "flex";
+  }
+}
+
+function hideLoader() {
+  const loader = document.getElementById("loader");
+  if (loader) {
+    loader.style.display = "none";
+  }
+}
+
+// Или более простая версия без анимации (если нужна простота):
+function showLoaderSimple() {
+  // Просто блокируем интерфейс
+  document.body.style.opacity = "0.7";
+  document.body.style.pointerEvents = "none";
+}
+
+function hideLoaderSimple() {
+  document.body.style.opacity = "1";
+  document.body.style.pointerEvents = "auto";
+}
+
+// Используем простую версию
+function showLoader() {
+  showLoaderSimple();
+}
+function hideLoader() {
+  hideLoaderSimple();
+}
+
+async function loadHistory() {
+  try {
+    // Показываем простой индикатор загрузки
+    document.body.style.cursor = "wait";
+
+    // Собираем фильтры
+    const filters = {
+      date_from: document.getElementById("filterDateFrom")?.value || "",
+      date_to: document.getElementById("filterDateTo")?.value || "",
+      vehicle_id: document.getElementById("filterVehicle")?.value || "",
+      driver: document.getElementById("filterDriver")?.value || "",
+      status: document.getElementById("filterStatus")?.value || "",
+      page: currentHistoryPage,
+      limit: historyPageSize,
+    };
+
+    // Сохраняем фильтры
+    currentHistoryFilters = filters;
+
+    // Строим URL с параметрами
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value) params.append(key, value);
+    });
+
+    const response = await fetch(`${API}/trips?${params.toString()}`, {
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem("token")}`,
+      },
+    });
+
+    if (!response.ok) throw new Error("Ошибка загрузки истории");
+
+    const trips = await response.json();
+    renderHistoryTable(trips);
+
+    // Обновляем информацию о странице
+    const pageInfo = document.getElementById("historyPageInfo");
+    if (pageInfo) {
+      pageInfo.textContent = `Страница ${currentHistoryPage}`;
+    }
+  } catch (error) {
+    console.error("Ошибка загрузки истории:", error);
+    alert(
+      "Не удалось загрузить историю рейсов: " +
+        (error.message || "неизвестная ошибка"),
+    );
+  } finally {
+    // Всегда сбрасываем курсор
+    document.body.style.cursor = "default";
+  }
+}
+
+// Рендер таблицы истории
+function renderHistoryTable(trips) {
+  const tbody = document.querySelector("#historyTable tbody");
+  if (!tbody) return;
+
+  tbody.innerHTML = "";
+
+  trips.forEach((trip) => {
+    const tr = document.createElement("tr");
+    tr.className = `trip-status-${trip.status}`;
+
+    // Рассчитываем продолжительность
+    let duration = "-";
+    if (trip.started_at && trip.completed_at) {
+      const start = new Date(trip.started_at);
+      const end = new Date(trip.completed_at);
+      const diffMs = end - start;
+      const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+      const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+      duration = `${diffHours}ч ${diffMinutes}м`;
+    }
+
+    // Информация о машине
+    let vehicleInfo = "-";
+    if (trip.vehicle) {
+      vehicleInfo = `${trip.vehicle.brand} (${trip.vehicle.gos_number})`;
+    }
+
+    // Маршруты
+    let routes = "-";
+    if (trip.cargo_stats?.routes) {
+      routes = trip.cargo_stats.routes.join("<br>");
+    }
+
+    // Статистика по грузам
+    const cargoCount = trip.cargo_stats?.cargo_count || 0;
+    const totalWeight = trip.cargo_stats?.total_weight || 0;
+    const totalVolume = trip.cargo_stats?.total_volume || 0;
+
+    // Статус с иконкой
+    let statusBadge = "";
+    switch (trip.status) {
+      case "completed":
+        statusBadge =
+          '<span class="status-badge status-completed">✅ Завершен</span>';
+        break;
+      case "in_progress":
+        statusBadge =
+          '<span class="status-badge status-in-progress">🚚 В пути</span>';
+        break;
+      case "cancelled":
+        statusBadge =
+          '<span class="status-badge status-cancelled">❌ Отменен</span>';
+        break;
+      default:
+        statusBadge = trip.status;
+    }
+
+    tr.innerHTML = `
+            <td><strong>#${trip.id}</strong></td>
+            <td>Заявка #${trip.order_id}</td>
+            <td>${formatMSK(trip.started_at)}</td>
+            <td>${trip.completed_at ? formatMSK(trip.completed_at) : "-"}</td>
+            <td>${duration}</td>
+            <td>${vehicleInfo}</td>
+            <td>${trip.vehicle?.driver || "-"}</td>
+            <td>${routes}</td>
+            <td>${cargoCount} ед.</td>
+            <td>${totalWeight.toFixed(1)} кг</td>
+            <td>${totalVolume.toFixed(2)} м³</td>
+            <td>${trip.order?.applicant || "-"}</td>
+            <td>${statusBadge}</td>
+            <td>
+                <button class="btn" onclick="viewTripDetails(${trip.id})" title="Подробнее">
+                    👁️
+                </button>
+                ${
+                  trip.status === "in_progress"
+                    ? `
+                    <button class="btn" onclick="completeTrip(${trip.id})" title="Завершить рейс" style="background: #4caf50;">
+                        ✓
+                    </button>
+                `
+                    : ""
+                }
+            </td>
+        `;
+
+    tbody.appendChild(tr);
+  });
+}
+
+// Просмотр деталей рейса
+async function viewTripDetails(tripId) {
+  try {
+    const response = await fetch(`${API}/trips/${tripId}`);
+    if (!response.ok) throw new Error("Ошибка загрузки данных");
+
+    const trip = await response.json();
+
+    // Формируем детальную информацию
+    let details = `<h3>Рейс #${trip.id}</h3>`;
+    details += `<p><strong>Статус:</strong> ${trip.status === "completed" ? "✅ Завершен" : "🚚 В пути"}</p>`;
+    details += `<p><strong>Начало:</strong> ${formatMSK(trip.started_at)}</p>`;
+
+    if (trip.completed_at) {
+      details += `<p><strong>Завершение:</strong> ${formatMSK(trip.completed_at)}</p>`;
+    }
+
+    if (trip.order) {
+      details += `<hr><h4>Информация о заявке</h4>`;
+      details += `<p><strong>Заявка #${trip.order.id}</strong></p>`;
+      details += `<p><strong>Заявитель:</strong> ${trip.order.applicant || "-"}</p>`;
+      details += `<p><strong>Отдел:</strong> ${trip.order.department || "-"}</p>`;
+      details += `<p><strong>Телефон:</strong> ${trip.order.phone_number || "-"}</p>`;
+
+      if (trip.order.preferred_departure_time) {
+        const time = new Date(trip.order.preferred_departure_time);
+        details += `<p><strong>Желаемое время:</strong> ${time.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}</p>`;
+      }
+    }
+
+    if (trip.vehicle) {
+      details += `<hr><h4>Информация о транспорте</h4>`;
+      details += `<p><strong>Машина:</strong> ${trip.vehicle.brand}</p>`;
+      details += `<p><strong>Гос. номер:</strong> ${trip.vehicle.gos_number}</p>`;
+      details += `<p><strong>Водитель:</strong> ${trip.vehicle.driver}</p>`;
+      details += `<p><strong>Гаражный номер:</strong> ${trip.vehicle.garage_number}</p>`;
+    }
+
+    if (trip.cargo_stats) {
+      details += `<hr><h4>Грузы</h4>`;
+      details += `<p><strong>Количество грузов:</strong> ${trip.cargo_stats.cargo_count}</p>`;
+      details += `<p><strong>Общий вес:</strong> ${trip.cargo_stats.total_weight.toFixed(1)} кг</p>`;
+      details += `<p><strong>Общий объем:</strong> ${trip.cargo_stats.total_volume.toFixed(2)} м³</p>`;
+
+      if (trip.cargo_stats.routes && trip.cargo_stats.routes.length > 0) {
+        details += `<p><strong>Маршруты:</strong></p><ul>`;
+        trip.cargo_stats.routes.forEach((route) => {
+          details += `<li>${route}</li>`;
+        });
+        details += `</ul>`;
+      }
+    }
+
+    // Показываем в модальном окне
+    Swal.fire({
+      title: "Детали рейса",
+      html: details,
+      width: 700,
+      showCloseButton: true,
+      showConfirmButton: false,
+    });
+  } catch (error) {
+    console.error("Ошибка:", error);
+    alert("Не удалось загрузить детали рейса");
+  }
+}
+
+// Завершение рейса
+async function completeTrip(tripId) {
+  if (!confirm("Завершить рейс и освободить машину?")) return;
+
+  try {
+    const response = await fetch(`${API}/trips/${tripId}/complete`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem("token")}`,
+      },
+    });
+
+    if (!response.ok) throw new Error("Ошибка завершения рейса");
+
+    alert("Рейс успешно завершен");
+    loadHistory();
+    loadVehicles();
+  } catch (error) {
+    console.error("Ошибка:", error);
+    alert("Не удалось завершить рейс");
+  }
+}
+
+// Применение фильтров
+function applyHistoryFilters() {
+  currentHistoryPage = 1;
+  loadHistory();
+}
+
+// Сброс фильтров
+function resetHistoryFilters() {
+  document.getElementById("filterDateFrom").value = "";
+  document.getElementById("filterDateTo").value = "";
+  document.getElementById("filterVehicle").value = "";
+  document.getElementById("filterDriver").value = "";
+  document.getElementById("filterStatus").value = "";
+
+  currentHistoryPage = 1;
+  loadHistory();
+}
+
+// Пагинация
+function changeHistoryPage(delta) {
+  const newPage = currentHistoryPage + delta;
+  if (newPage >= 1 && newPage <= totalHistoryPages) {
+    currentHistoryPage = newPage;
+    loadHistory();
+  }
+}
+
+// Загрузка списка машин для фильтра
+async function loadVehiclesForFilter() {
+  try {
+    const response = await fetch(`${API}/vehicles`);
+    const vehicles = await response.json();
+
+    const select = document.getElementById("filterVehicle");
+    if (!select) return;
+
+    select.innerHTML = '<option value="">Все машины</option>';
+    vehicles.forEach((vehicle) => {
+      const option = document.createElement("option");
+      option.value = vehicle.id;
+      option.textContent = `${vehicle.garage_number} - ${vehicle.brand} (${vehicle.driver})`;
+      select.appendChild(option);
+    });
+  } catch (error) {
+    console.error("Ошибка загрузки машин:", error);
+  }
+}
+
+// Экспорт истории в Excel
+async function exportHistoryToExcel() {
+  try {
+    // Собираем все фильтры для экспорта
+    const params = new URLSearchParams(currentHistoryFilters);
+    params.delete("page");
+    params.delete("limit");
+
+    window.open(`${API}/export_orders?${params.toString()}`);
+  } catch (error) {
+    console.error("Ошибка экспорта:", error);
+    alert("Ошибка при экспорте истории");
+  }
+}
+
+// Показать статистику рейсов
+async function showTripStats() {
+  const statsDiv = document.getElementById("tripStats");
+  const statsContent = document.getElementById("statsContent");
+
+  if (statsDiv.style.display === "block") {
+    statsDiv.style.display = "none";
+    return;
+  }
+
+  try {
+    const response = await fetch(`${API}/trips/stats`);
+    const stats = await response.json();
+
+    let html = `
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px;">
+                <div style="text-align: center; background: white; padding: 15px; border-radius: 8px;">
+                    <h4 style="margin: 0; color: #2196f3;">Всего рейсов</h4>
+                    <p style="font-size: 24px; font-weight: bold; margin: 10px 0;">${stats.total_trips}</p>
+                </div>
+                <div style="text-align: center; background: white; padding: 15px; border-radius: 8px;">
+                    <h4 style="margin: 0; color: #4caf50;">Завершено</h4>
+                    <p style="font-size: 24px; font-weight: bold; margin: 10px 0;">${stats.completed_trips}</p>
+                </div>
+                <div style="text-align: center; background: white; padding: 15px; border-radius: 8px;">
+                    <h4 style="margin: 0; color: #ff9800;">В процессе</h4>
+                    <p style="font-size: 24px; font-weight: bold; margin: 10px 0;">${stats.in_progress_trips}</p>
+                </div>
+                <div style="text-align: center; background: white; padding: 15px; border-radius: 8px;">
+                    <h4 style="margin: 0; color: #9c27b0;">За 30 дней</h4>
+                    <p style="font-size: 24px; font-weight: bold; margin: 10px 0;">${stats.recent_30_days.total}</p>
+                </div>
+            </div>
+        `;
+
+    // Топ машины
+    if (stats.top_vehicles && stats.top_vehicles.length > 0) {
+      html += `<h4 style="margin-top: 20px;">Самые активные машины:</h4>`;
+      html += `<div style="overflow-x: auto;">`;
+      html += `<table style="width: 100%; border-collapse: collapse;">`;
+      html += `<tr><th>Машина</th><th>Водитель</th><th>Рейсов</th><th>Общий вес</th></tr>`;
+
+      stats.top_vehicles.forEach((vehicle) => {
+        html += `
+                    <tr style="border-bottom: 1px solid #ddd;">
+                        <td style="padding: 8px;">${vehicle.brand}</td>
+                        <td style="padding: 8px;">${vehicle.driver}</td>
+                        <td style="padding: 8px; text-align: center;">${vehicle.trip_count}</td>
+                        <td style="padding: 8px; text-align: right;">${vehicle.total_weight.toFixed(0)} кг</td>
+                    </tr>
+                `;
+      });
+
+      html += `</table></div>`;
+    }
+
+    statsContent.innerHTML = html;
+    statsDiv.style.display = "block";
+  } catch (error) {
+    console.error("Ошибка загрузки статистики:", error);
+    statsContent.innerHTML =
+      '<p style="color: red;">Не удалось загрузить статистику</p>';
+    statsDiv.style.display = "block";
+  }
+}
 
 // Функция принудительного вывода времени по Москве (UTC+3)
 function formatMSK(dateString) {
@@ -1125,7 +1568,10 @@ function showTab(tabId) {
     selectedOrders = [];
     updateSelection();
   }
-
+  if (tabId === "history") {
+    loadHistory();
+    loadVehiclesForFilter();
+  }
   if (tabId === "vehicles") loadVehicles();
   if (tabId === "users") loadUsers();
 }

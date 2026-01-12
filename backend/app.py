@@ -177,17 +177,29 @@ class Order(db.Model):
 class Trip(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     order_id = db.Column(db.Integer, db.ForeignKey('order.id'))
+    vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicle.id'))
     started_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
     completed_at = db.Column(db.DateTime, nullable=True)
     status = db.Column(db.String(20), default="in_progress")
+    distance_km = db.Column(db.Float, nullable=True)  # километраж
+    fuel_consumed = db.Column(db.Float, nullable=True)  # расход топлива
+    notes = db.Column(db.Text, nullable=True)  # заметки водителя
+
+    # Добавляем отношения
+    order = relationship("Order", backref="trips")
+    vehicle = relationship("Vehicle", backref="trips")
 
     def to_dict(self):
         return {
             "id": self.id,
             "order_id": self.order_id,
-            "started_at": self.started_at.isoformat(),
+            "vehicle_id": self.vehicle_id,
+            "started_at": self.started_at.isoformat() if self.started_at else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
             "status": self.status,
+            "distance_km": self.distance_km,
+            "fuel_consumed": self.fuel_consumed,
+            "notes": self.notes
         }
 
 
@@ -1435,6 +1447,174 @@ def check_order_deadlines():
                 print(f"СРОЧНО: Заявка #{order.id} требует отправления в {order.preferred_departure_time}")
 
         time.sleep(300)  # Проверять каждые 5 минут
+
+@app.route("/trips", methods=["GET"])
+@login_required
+def get_trips():
+    """Получение всех рейсов с фильтрацией"""
+    # Фильтры из запроса
+    date_from = request.args.get('date_from')
+    date_to = request.args.get('date_to')
+    vehicle_id = request.args.get('vehicle_id')
+    driver = request.args.get('driver')
+    status = request.args.get('status')
+
+    # Начинаем запрос
+    query = Trip.query.join(Order, Trip.order_id == Order.id).join(Vehicle, Order.vehicle_id == Vehicle.id)
+
+    if current_user.role != "admin":
+        query = query.filter(Order.user_id == current_user.id)
+
+    # Применяем фильтры
+    if date_from:
+        try:
+            date_from_obj = datetime.fromisoformat(date_from.replace('Z', '+00:00'))
+            query = query.filter(Trip.started_at >= date_from_obj)
+        except:
+            pass
+
+    if date_to:
+        try:
+            date_to_obj = datetime.fromisoformat(date_to.replace('Z', '+00:00'))
+            query = query.filter(Trip.started_at <= date_to_obj)
+        except:
+            pass
+
+    if vehicle_id:
+        query = query.filter(Vehicle.id == vehicle_id)
+
+    if driver:
+        query = query.filter(Vehicle.driver.ilike(f'%{driver}%'))
+
+    if status:
+        query = query.filter(Trip.status == status)
+
+    # Сортировка по дате начала (новые сверху)
+    trips = query.order_by(Trip.started_at.desc()).all()
+
+    # Преобразуем в словари с подробной информацией
+    trips_data = []
+    for trip in trips:
+        trip_dict = trip.to_dict()
+
+        # Добавляем информацию о заказе
+        order = Order.query.get(trip.order_id)
+        if order:
+            trip_dict['order'] = order.to_dict()
+
+            # Добавляем информацию о машине
+            if order.vehicle:
+                trip_dict['vehicle'] = order.vehicle.to_dict()
+
+            # Добавляем статистику по грузам
+            if order.cargos:
+                total_weight = sum(c.weight * c.quantity for c in order.cargos)
+                total_volume = sum(c.length * c.width * c.height * c.quantity for c in order.cargos)
+                cargo_count = len(order.cargos)
+
+                trip_dict['cargo_stats'] = {
+                    'total_weight': total_weight,
+                    'total_volume': total_volume,
+                    'cargo_count': cargo_count,
+                    'routes': list(set(f"{c.departure} → {c.destination}" for c in order.cargos))
+                }
+
+        trips_data.append(trip_dict)
+
+    return jsonify(trips_data)
+
+
+@app.route("/trips/<int:trip_id>/complete", methods=["POST"])
+@login_required
+@role_required("admin")
+def complete_trip(trip_id):
+    """Завершение рейса"""
+    trip = Trip.query.get_or_404(trip_id)
+
+    if trip.status != "in_progress":
+        return jsonify({"error": "Рейс уже завершен или отменен"}), 400
+
+    trip.status = "completed"
+    trip.completed_at = datetime.now(timezone.utc)
+
+    # Обновляем статус заявки
+    order = Order.query.get(trip.order_id)
+    if order:
+        order.status = "completed"
+
+        # Освобождаем машину
+        if order.vehicle:
+            order.vehicle.status = "free"
+
+    db.session.commit()
+
+    return jsonify({
+        "message": "Рейс завершен",
+        "trip": trip.to_dict()
+    })
+
+
+@app.route("/trips/stats", methods=["GET"])
+@login_required
+def get_trips_stats():
+    """Статистика по рейсам"""
+    # За последние 30 дней
+    thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
+
+    # Общая статистика
+    total_trips = Trip.query.count()
+    completed_trips = Trip.query.filter_by(status="completed").count()
+    in_progress_trips = Trip.query.filter_by(status="in_progress").count()
+
+    # Статистика за последние 30 дней
+    recent_trips = Trip.query.filter(Trip.started_at >= thirty_days_ago).count()
+    recent_completed = Trip.query.filter(
+        Trip.status == "completed",
+        Trip.started_at >= thirty_days_ago
+    ).count()
+
+    # Статистика по машинам
+    vehicle_stats = db.session.query(
+        Vehicle.brand,
+        Vehicle.driver,
+        db.func.count(Trip.id).label('trip_count'),
+        db.func.sum(
+            db.func.coalesce(
+                db.func.cast((
+                    select([db.func.sum(Cargo.weight * Cargo.quantity)])
+                    .where(Cargo.id.in_(
+                        select([order_cargo.c.cargo_id])
+                        .where(order_cargo.c.order_id == Trip.order_id)
+                    ))
+                    .as_scalar()
+                ), db.Float), 0)
+        ).label('total_weight')
+    ).join(Order, Order.id == Trip.order_id).join(
+        Vehicle, Vehicle.id == Order.vehicle_id
+    ).filter(Trip.status == "completed").group_by(
+        Vehicle.id, Vehicle.brand, Vehicle.driver
+    ).order_by(db.desc('trip_count')).limit(10).all()
+
+    return jsonify({
+        "total_trips": total_trips,
+        "completed_trips": completed_trips,
+        "in_progress_trips": in_progress_trips,
+        "recent_30_days": {
+            "total": recent_trips,
+            "completed": recent_completed,
+            "completion_rate": (recent_completed / recent_trips * 100) if recent_trips > 0 else 0
+        },
+        "top_vehicles": [
+            {
+                "brand": stat.brand,
+                "driver": stat.driver,
+                "trip_count": stat.trip_count,
+                "total_weight": float(stat.total_weight or 0)
+            }
+            for stat in vehicle_stats
+        ]
+    })
+
 
 
 if __name__ == "__main__":
