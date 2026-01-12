@@ -573,15 +573,10 @@ def clear_draft_cargos():
 
 
 @app.route("/orders/<int:id>/assign", methods=["POST"])
-
 def assign_vehicle(id):
-
     order = Order.query.get_or_404(id)
-
     data = request.get_json()
-
     vehicle_id = data.get("vehicle_id")
-
     vehicle = Vehicle.query.get_or_404(vehicle_id)
 
     if vehicle.status == "in_repair":
@@ -590,16 +585,20 @@ def assign_vehicle(id):
         return jsonify({"error": "Машина занята"}), 400
 
     order.vehicle_id = vehicle_id
-
     order.status = "assigned"
-
     vehicle.status = "busy"
 
-    vehicle.current_cargo_ids = ",".join(map(str, [c.id for c in order.cargos]))
+    # СОЗДАЕМ РЕЙС ПРИ НАЗНАЧЕНИИ МАШИНЫ
+    trip = Trip(
+        order_id=order.id,
+        vehicle_id=vehicle_id,
+        started_at=datetime.now(timezone.utc),
+        status="in_progress"
+    )
+    db.session.add(trip)
 
     db.session.commit()
-
-    return jsonify({"message": "Машина назначена"})
+    return jsonify({"message": "Машина назначена, рейс создан"})
 
 
 @app.route("/orders/<int:id>/complete", methods=["POST"])
@@ -609,6 +608,18 @@ def complete_order(id):
 
     if order.status != "assigned":
         return jsonify({"error": "Рейс не назначен или уже завершен"}), 400
+
+    # Находим активный рейс для этой заявки
+    trip = Trip.query.filter_by(order_id=order.id, status="in_progress").first()
+
+    if trip:
+        # Завершаем рейс
+        trip.status = "completed"
+        trip.completed_at = datetime.now(timezone.utc)
+        # Можно добавить данные о пробеге и топливе
+        trip.distance_km = request.json.get('distance_km')
+        trip.fuel_consumed = request.json.get('fuel_consumed')
+        trip.notes = request.json.get('notes')
 
     # Обновляем статус заявки
     order.status = "completed"
@@ -725,6 +736,62 @@ def suggest_vehicle(order_id):
 
     print(f"[DEBUG] No suitable vehicles at all")
     return jsonify({"error": f"Подходящая машина не найдена. Требования: {total_weight}кг, {max_l}x{max_w}x{max_h_single}м"}), 404
+
+
+from app import app, db, Order, Trip
+from datetime import datetime, timezone, timedelta
+
+with app.app_context():
+    # Находим заявки, которые назначены или завершены
+    orders = Order.query.filter(Order.status.in_(["assigned", "completed"])).all()
+
+    print(f"Найдено {len(orders)} заявок для создания рейсов")
+
+    for i, order in enumerate(orders, 1):
+        # Проверяем, нет ли уже рейса для этой заявки
+        existing_trip = Trip.query.filter_by(order_id=order.id).first()
+        if not existing_trip:
+            trip = Trip(
+                order_id=order.id,
+                vehicle_id=order.vehicle_id,
+                started_at=order.created_at,
+                status="completed" if order.status == "completed" else "in_progress",
+                completed_at=datetime.now(timezone.utc) if order.status == "completed" else None,
+                distance_km=100.5 + i * 10,  # Тестовые данные
+                fuel_consumed=30.2 + i * 2
+            )
+            db.session.add(trip)
+            print(f"Создан рейс для заявки #{order.id}")
+
+    db.session.commit()
+    print("Рейсы созданы!")
+
+    @app.route("/complete_trip_with_data/<int:order_id>", methods=["POST"])
+    @login_required
+    @role_required("admin")
+    def complete_trip_with_data(order_id):
+        """Завершить рейс с данными о пробеге и топливе"""
+        data = request.get_json()
+
+        order = Order.query.get_or_404(order_id)
+        trip = Trip.query.filter_by(order_id=order_id, status="in_progress").first()
+
+        if not trip:
+            return jsonify({"error": "Активный рейс не найден"}), 404
+
+        trip.status = "completed"
+        trip.completed_at = datetime.now(timezone.utc)
+        trip.distance_km = data.get("distance_km")
+        trip.fuel_consumed = data.get("fuel_consumed")
+        trip.notes = data.get("notes")
+
+        order.status = "completed"
+        if order.vehicle:
+            order.vehicle.status = "free"
+
+        db.session.commit()
+        return jsonify({"message": "Рейс завершен с данными", "trip": trip.to_dict()})
+
 
 
 @app.route("/stats", methods=["GET"])

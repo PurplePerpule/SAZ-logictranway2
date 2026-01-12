@@ -6,6 +6,7 @@ let currentHistoryPage = 1;
 let historyPageSize = 20;
 let totalHistoryPages = 1;
 let currentHistoryFilters = {};
+let myMap = null;
 
 function showLoader() {
   const loader = document.getElementById("loader");
@@ -62,30 +63,17 @@ function hideLoader() {
   }
 }
 
-// Или более простая версия без анимации (если нужна простота):
-function showLoaderSimple() {
-  // Просто блокируем интерфейс
-  document.body.style.opacity = "0.7";
-  document.body.style.pointerEvents = "none";
-}
-
-function hideLoaderSimple() {
-  document.body.style.opacity = "1";
-  document.body.style.pointerEvents = "auto";
-}
-
-// Используем простую версию
-function showLoader() {
-  showLoaderSimple();
-}
-function hideLoader() {
-  hideLoaderSimple();
-}
-
 async function loadHistory() {
   try {
-    // Показываем простой индикатор загрузки
     document.body.style.cursor = "wait";
+
+    // Проверяем авторизацию
+    const token = localStorage.getItem("token");
+    if (!token) {
+      alert("Требуется авторизация");
+      window.location.href = "login.html";
+      return;
+    }
 
     // Собираем фильтры
     const filters = {
@@ -94,12 +82,7 @@ async function loadHistory() {
       vehicle_id: document.getElementById("filterVehicle")?.value || "",
       driver: document.getElementById("filterDriver")?.value || "",
       status: document.getElementById("filterStatus")?.value || "",
-      page: currentHistoryPage,
-      limit: historyPageSize,
     };
-
-    // Сохраняем фильтры
-    currentHistoryFilters = filters;
 
     // Строим URL с параметрами
     const params = new URLSearchParams();
@@ -107,30 +90,36 @@ async function loadHistory() {
       if (value) params.append(key, value);
     });
 
+    console.log("Загружаем историю рейсов с параметрами:", params.toString());
+
     const response = await fetch(`${API}/trips?${params.toString()}`, {
       headers: {
-        Authorization: `Bearer ${localStorage.getItem("token")}`,
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
       },
     });
 
-    if (!response.ok) throw new Error("Ошибка загрузки истории");
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        `Ошибка загрузки истории: ${response.status} - ${errorText}`,
+      );
+    }
 
     const trips = await response.json();
-    renderHistoryTable(trips);
+    console.log("Получено рейсов:", trips.length, trips);
 
-    // Обновляем информацию о странице
-    const pageInfo = document.getElementById("historyPageInfo");
-    if (pageInfo) {
-      pageInfo.textContent = `Страница ${currentHistoryPage}`;
+    if (trips.length === 0) {
+      alert("История рейсов пуста. Пока нет завершенных рейсов.");
     }
+
+    renderHistoryTable(trips);
   } catch (error) {
     console.error("Ошибка загрузки истории:", error);
     alert(
-      "Не удалось загрузить историю рейсов: " +
-        (error.message || "неизвестная ошибка"),
+      "Не удалось загрузить историю рейсов. Проверьте консоль для подробностей.",
     );
   } finally {
-    // Всегда сбрасываем курсор
     document.body.style.cursor = "default";
   }
 }
@@ -1559,27 +1548,59 @@ async function mergeOrders() {
 }
 
 function showTab(tabId) {
-  document
-    .querySelectorAll(".tab")
-    .forEach((t) => t.classList.remove("active"));
-  document.getElementById(tabId).classList.add("active");
+  console.log("Переключение на вкладку:", tabId);
+
+  // Скрываем все вкладки
+  document.querySelectorAll(".tab").forEach((t) => {
+    t.classList.remove("active");
+  });
+
+  // Показываем выбранную вкладку
+  const targetTab = document.getElementById(tabId);
+  if (targetTab) {
+    targetTab.classList.add("active");
+  } else {
+    console.error("Вкладка не найдена:", tabId);
+    return;
+  }
 
   // Показывать/скрывать чекбоксы только во вкладке заявок
   const selectionMode = document.getElementById("selectionMode");
-  if (tabId === "orders") {
-    if (selectionMode) selectionMode.style.display = "block";
-  } else {
-    if (selectionMode) selectionMode.style.display = "none";
-    // Сбрасываем выделение при переключении вкладок
-    selectedOrders = [];
-    updateSelection();
+  if (selectionMode) {
+    if (tabId === "orders") {
+      selectionMode.style.display = "block";
+    } else {
+      selectionMode.style.display = "none";
+      // Сбрасываем выделение при переключении вкладок
+      selectedOrders = [];
+      updateSelection();
+    }
   }
-  if (tabId === "history") {
-    loadHistory();
-    loadVehiclesForFilter();
+
+  // Загружаем данные для выбранной вкладки
+  switch (tabId) {
+    case "orders":
+      loadOrders();
+      break;
+    case "vehicles":
+      loadVehicles();
+      break;
+    case "history":
+      loadHistory();
+      loadVehiclesForFilter();
+      break;
+    case "tracking":
+      // Инициализируем карту если нужно
+      if (typeof ymaps !== "undefined" && !myMap) {
+        ymaps.ready(() => {
+          myMap = new ymaps.Map("map", { center: [53.9, 27.56], zoom: 10 });
+        });
+      }
+      break;
+    case "users":
+      loadUsers();
+      break;
   }
-  if (tabId === "vehicles") loadVehicles();
-  if (tabId === "users") loadUsers();
 }
 
 function printTTN(orderId) {
@@ -1589,17 +1610,8 @@ async function exportToExcel() {
   window.location = `${API}/export_orders`;
 }
 
-loadOrders();
-loadVehicles();
-setInterval(() => {
-  loadOrders();
-  if (document.getElementById("vehicles").classList.contains("active"))
-    loadVehicles();
-}, 8000);
-
-// В конце файла, после определения всех функций
 document.addEventListener("DOMContentLoaded", function () {
-  console.log("DOM загружен, инициализация...");
+  console.log("Админ-панель загружена");
 
   // Проверка авторизации
   const token = localStorage.getItem("token");
@@ -1608,15 +1620,77 @@ document.addEventListener("DOMContentLoaded", function () {
     return;
   }
 
-  // Загрузка данных
-  loadOrders();
+  // Проверяем валидность токена
+  fetch(`${API}/me`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error("Invalid token");
+      }
+      return response.json();
+    })
+    .then((user) => {
+      console.log("Авторизован как:", user.username);
+      currentUserId = user.id;
+    })
+    .catch((error) => {
+      console.error("Ошибка авторизации:", error);
+      localStorage.removeItem("token");
+      window.location.href = "login.html";
+      return;
+    });
+
+  // Инициализация переменных
+  window.API = API || "";
+  currentHistoryPage = 1;
+
+  // Загружаем данные для вкладки по умолчанию
+  if (document.getElementById("orders")?.classList.contains("active")) {
+    loadOrders();
+  }
+
+  // Загружаем транспорт
   loadVehicles();
+
+  // Инициализируем вкладки
+  initTabs();
 
   // Автообновление каждые 10 секунд
   setInterval(() => {
-    loadOrders();
-    if (document.getElementById("vehicles").classList.contains("active")) {
+    if (document.getElementById("orders")?.classList.contains("active")) {
+      loadOrders();
+    }
+    if (document.getElementById("vehicles")?.classList.contains("active")) {
       loadVehicles();
     }
   }, 10000);
 });
+
+function initTabs() {
+  // Добавляем обработчики для всех вкладок через делегирование событий
+  const nav = document.querySelector("nav");
+  if (nav) {
+    nav.addEventListener("click", function (e) {
+      e.preventDefault();
+      const target = e.target;
+      if (target.tagName === "A") {
+        const tabId = target
+          .getAttribute("onclick")
+          ?.match(/['"]([^'"]+)['"]/)?.[1];
+        if (tabId) {
+          showTab(tabId);
+        }
+      }
+    });
+  }
+
+  // Инициализируем активную вкладку
+  const activeTab = document.querySelector(".tab.active");
+  if (activeTab) {
+    const tabId = activeTab.id;
+    showTab(tabId);
+  }
+}
