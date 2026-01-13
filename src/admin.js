@@ -219,10 +219,34 @@ function renderHistoryTable(trips) {
 // Просмотр деталей рейса
 async function viewTripDetails(tripId) {
   try {
-    const response = await fetch(`${API}/trips/${tripId}`);
-    if (!response.ok) throw new Error("Ошибка загрузки данных");
+    const token = localStorage.getItem("token");
+    if (!token) {
+      alert("Требуется авторизация");
+      window.location.href = "login.html";
+      return;
+    }
+
+    console.log("Загружаем детали рейса #", tripId);
+
+    const response = await fetch(`${API}/trips/${tripId}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        throw new Error("Рейс не найден");
+      } else if (response.status === 403) {
+        throw new Error("Доступ запрещен");
+      } else {
+        throw new Error(`Ошибка загрузки: ${response.status}`);
+      }
+    }
 
     const trip = await response.json();
+    console.log("Данные рейса:", trip);
 
     // Формируем детальную информацию
     let details = `<h3>Рейс #${trip.id}</h3>`;
@@ -231,6 +255,18 @@ async function viewTripDetails(tripId) {
 
     if (trip.completed_at) {
       details += `<p><strong>Завершение:</strong> ${formatMSK(trip.completed_at)}</p>`;
+    }
+
+    if (trip.distance_km) {
+      details += `<p><strong>Пройдено км:</strong> ${trip.distance_km}</p>`;
+    }
+
+    if (trip.fuel_consumed) {
+      details += `<p><strong>Потрачено топлива:</strong> ${trip.fuel_consumed} л</p>`;
+    }
+
+    if (trip.notes) {
+      details += `<p><strong>Примечания:</strong> ${trip.notes}</p>`;
     }
 
     if (trip.order) {
@@ -246,12 +282,32 @@ async function viewTripDetails(tripId) {
       }
     }
 
+    // Проверяем, есть ли информация о машине в объекте рейса
     if (trip.vehicle) {
       details += `<hr><h4>Информация о транспорте</h4>`;
       details += `<p><strong>Машина:</strong> ${trip.vehicle.brand}</p>`;
       details += `<p><strong>Гос. номер:</strong> ${trip.vehicle.gos_number}</p>`;
       details += `<p><strong>Водитель:</strong> ${trip.vehicle.driver}</p>`;
       details += `<p><strong>Гаражный номер:</strong> ${trip.vehicle.garage_number}</p>`;
+      details += `<p><strong>Тип тента:</strong> ${trip.vehicle.tent_type === "open" ? "Открытый" : "Закрытый"}</p>`;
+    } else if (trip.vehicle_id) {
+      // Если в объекте нет полной информации, но есть ID, загружаем отдельно
+      try {
+        const vehicleResponse = await fetch(
+          `${API}/vehicles/${trip.vehicle_id}`,
+        );
+        if (vehicleResponse.ok) {
+          const vehicle = await vehicleResponse.json();
+          details += `<hr><h4>Информация о транспорте</h4>`;
+          details += `<p><strong>Машина:</strong> ${vehicle.brand}</p>`;
+          details += `<p><strong>Гос. номер:</strong> ${vehicle.gos_number}</p>`;
+          details += `<p><strong>Водитель:</strong> ${vehicle.driver}</p>`;
+          details += `<p><strong>Гаражный номер:</strong> ${vehicle.garage_number}</p>`;
+          details += `<p><strong>Тип тента:</strong> ${vehicle.tent_type === "open" ? "Открытый" : "Закрытый"}</p>`;
+        }
+      } catch (e) {
+        console.error("Не удалось загрузить данные машины:", e);
+      }
     }
 
     if (trip.cargo_stats) {
@@ -270,16 +326,21 @@ async function viewTripDetails(tripId) {
     }
 
     // Показываем в модальном окне
-    Swal.fire({
-      title: "Детали рейса",
-      html: details,
-      width: 700,
-      showCloseButton: true,
-      showConfirmButton: false,
-    });
+    if (typeof Swal !== "undefined") {
+      Swal.fire({
+        title: "Детали рейса",
+        html: details,
+        width: 700,
+        showCloseButton: true,
+        showConfirmButton: false,
+      });
+    } else {
+      // Если Swal не загружен, показываем простой alert
+      alert(details.replace(/<[^>]*>/g, ""));
+    }
   } catch (error) {
     console.error("Ошибка:", error);
-    alert("Не удалось загрузить детали рейса");
+    alert("Не удалось загрузить детали рейса: " + error.message);
   }
 }
 
@@ -288,21 +349,26 @@ async function completeTrip(tripId) {
   if (!confirm("Завершить рейс и освободить машину?")) return;
 
   try {
+    const token = localStorage.getItem("token");
     const response = await fetch(`${API}/trips/${tripId}/complete`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${localStorage.getItem("token")}`,
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
       },
     });
 
-    if (!response.ok) throw new Error("Ошибка завершения рейса");
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || "Ошибка завершения рейса");
+    }
 
     alert("Рейс успешно завершен");
     loadHistory();
     loadVehicles();
   } catch (error) {
     console.error("Ошибка:", error);
-    alert("Не удалось завершить рейс");
+    alert("Не удалось завершить рейс: " + error.message);
   }
 }
 

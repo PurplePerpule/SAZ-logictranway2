@@ -395,6 +395,12 @@ def get_vehicles():
     vehicles = Vehicle.query.all()
     return jsonify([vehicle.to_dict() for vehicle in vehicles])
 
+@app.route("/vehicles/<int:vehicle_id>", methods=["GET"])
+def get_vehicle_by_id(vehicle_id):
+    """Получение данных конкретного автомобиля по ID"""
+    vehicle = Vehicle.query.get_or_404(vehicle_id)
+    return jsonify(vehicle.to_dict())
+
 @app.route("/vehicles", methods=["POST"])
 def add_vehicle():
     data = request.get_json()
@@ -588,7 +594,7 @@ def assign_vehicle(id):
     order.status = "assigned"
     vehicle.status = "busy"
 
-    # СОЗДАЕМ РЕЙС ПРИ НАЗНАЧЕНИИ МАШИНЫ
+    # АВТОМАТИЧЕСКОЕ СОЗДАНИЕ РЕЙСА ПРИ НАЗНАЧЕНИИ МАШИНЫ
     trip = Trip(
         order_id=order.id,
         vehicle_id=vehicle_id,
@@ -609,25 +615,30 @@ def complete_order(id):
     if order.status != "assigned":
         return jsonify({"error": "Рейс не назначен или уже завершен"}), 400
 
-    # Находим активный рейс для этой заявки
-    trip = Trip.query.filter_by(order_id=order.id, status="in_progress").first()
+    # Находим рейс для этой заявки
+    trip = Trip.query.filter_by(order_id=order.id).first()
 
-    if trip:
-        # Завершаем рейс
+    if not trip:
+        # Если рейс не был создан (для старых данных), создаем его
+        trip = Trip(
+            order_id=order.id,
+            vehicle_id=order.vehicle_id,
+            started_at=order.created_at,
+            status="completed",
+            completed_at=datetime.now(timezone.utc)
+        )
+        db.session.add(trip)
+    else:
+        # Обновляем существующий рейс
         trip.status = "completed"
         trip.completed_at = datetime.now(timezone.utc)
-        # Можно добавить данные о пробеге и топливе
-        trip.distance_km = request.json.get('distance_km')
-        trip.fuel_consumed = request.json.get('fuel_consumed')
-        trip.notes = request.json.get('notes')
 
     # Обновляем статус заявки
     order.status = "completed"
 
-    # Освобождаем машину, если она есть
+    # Освобождаем машину
     if order.vehicle:
         order.vehicle.status = "free"
-        order.vehicle.current_cargo_ids = None
 
     db.session.commit()
     return jsonify({"message": "Рейс завершён"})
@@ -1619,6 +1630,45 @@ def complete_trip(trip_id):
         "message": "Рейс завершен",
         "trip": trip.to_dict()
     })
+
+@app.route("/trips/<int:trip_id>", methods=["GET"])
+@login_required
+def get_trip_by_id(trip_id):
+    """Получение данных конкретного рейса по ID"""
+    trip = Trip.query.get_or_404(trip_id)
+
+    # Проверяем права доступа
+    if current_user.role != "admin":
+        # Пользователь может видеть только свои рейсы
+        order = Order.query.get(trip.order_id)
+        if order and order.user_id != current_user.id:
+            return jsonify({"error": "Доступ запрещён"}), 403
+
+    trip_dict = trip.to_dict()
+
+    # Добавляем информацию о заказе
+    order = Order.query.get(trip.order_id)
+    if order:
+        trip_dict['order'] = order.to_dict()
+
+        # Добавляем информацию о машине
+        if order.vehicle:
+            trip_dict['vehicle'] = order.vehicle.to_dict()
+
+        # Добавляем статистику по грузам
+        if order.cargos:
+            total_weight = sum(c.weight * c.quantity for c in order.cargos)
+            total_volume = sum(c.length * c.width * c.height * c.quantity for c in order.cargos)
+            cargo_count = len(order.cargos)
+
+            trip_dict['cargo_stats'] = {
+                'total_weight': total_weight,
+                'total_volume': total_volume,
+                'cargo_count': cargo_count,
+                'routes': list(set(f"{c.departure} → {c.destination}" for c in order.cargos))
+            }
+
+    return jsonify(trip_dict)
 
 
 @app.route("/trips/stats", methods=["GET"])
