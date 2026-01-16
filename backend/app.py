@@ -11,12 +11,16 @@ from io import BytesIO
 from openpyxl.workbook.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 from threading import Thread
-
+from openpyxl.utils import get_column_letter
+from urllib.parse import quote
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfbase import pdfmetrics
+import base64
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
-import pdfkit
+from xhtml2pdf import pisa
 
 import os
-
+from pathlib import Path
 
 app = Flask(__name__)
 CORS(app)
@@ -436,17 +440,22 @@ def update_vehicle_status(id):
 @login_required
 def get_orders():
     if current_user.role == "admin":
-        # Админ видит все заявки
-        orders = Order.query.all()
+        # Админ видит все заявки, сортируем по статусу (новые сверху) и дате создания
+        orders = Order.query.order_by(
+            Order.status.asc(),  # 'new' будет первым в алфавитном порядке
+            Order.created_at.desc()  # Новые заявки сверху
+        ).all()
     else:
-        # Пользователь видит только свои заявки
-        orders = Order.query.filter_by(user_id=current_user.id).all()
+        # Пользователь видит только свои заявки, также сортируем
+        orders = Order.query.filter_by(user_id=current_user.id).order_by(
+            Order.status.asc(),
+            Order.created_at.desc()
+        ).all()
 
     # Преобразуем в словари с правильными данными о машине
     orders_data = []
     for order in orders:
         order_dict = order.to_dict()
-        # Убедимся, что vehicle существует и не None
         if order.vehicle:
             order_dict["vehicle"] = order.vehicle.to_dict()
         else:
@@ -1113,13 +1122,177 @@ def auto_distribute_smart():
 
 
 def get_status_text(status):
-    if status == "new":
-        return "Новая"
-    elif status == "assigned":
-        return "Назначена"
-    elif status == "completed":
-        return "Завершена"
-    return status
+    """Преобразование статуса в читаемый текст"""
+    status_map = {
+        "new": "Новая",
+        "assigned": "Назначена",
+        "completed": "Завершена",
+        "in_progress": "В пути",
+    }
+    return status_map.get(status, status)
+
+@app.route("/export_trips", methods=["GET"])
+@login_required
+def export_trips():
+    """Экспорт истории рейсов в Excel"""
+    try:
+        # Собираем фильтры из запроса
+        date_from = request.args.get('date_from')
+        date_to = request.args.get('date_to')
+        vehicle_id = request.args.get('vehicle_id')
+        driver = request.args.get('driver')
+        status = request.args.get('status')
+
+        # Начинаем запрос
+        query = Trip.query.join(Order, Trip.order_id == Order.id).join(Vehicle, Order.vehicle_id == Vehicle.id)
+
+        if current_user.role != "admin":
+            query = query.filter(Order.user_id == current_user.id)
+
+        # Применяем фильтры
+        if date_from:
+            try:
+                date_from_obj = datetime.fromisoformat(date_from.replace('Z', '+00:00'))
+                query = query.filter(Trip.started_at >= date_from_obj)
+            except:
+                pass
+
+        if date_to:
+            try:
+                date_to_obj = datetime.fromisoformat(date_to.replace('Z', '+00:00'))
+                query = query.filter(Trip.started_at <= date_to_obj)
+            except:
+                pass
+
+        if vehicle_id:
+            query = query.filter(Vehicle.id == vehicle_id)
+
+        if driver:
+            query = query.filter(Vehicle.driver.ilike(f'%{driver}%'))
+
+        if status:
+            query = query.filter(Trip.status == status)
+
+        # Получаем все отфильтрованные рейсы
+        trips = query.order_by(Trip.started_at.desc()).all()
+
+        # Создаем Excel файл
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "История рейсов"
+
+        # Заголовки
+        headers = [
+            "ID рейса", "ID заявки", "Дата начала", "Дата завершения",
+            "Продолжительность", "Гос. номер", "Водитель", "Марка",
+            "Гаражный номер", "Тип тента", "Статус",
+            "Пройдено км", "Расход топлива", "Примечания",
+            "Заявитель", "Отдел", "Телефон",
+            "Количество грузов", "Общий вес (кг)", "Общий объем (м³)",
+            "Маршруты"
+        ]
+        ws.append(headers)
+
+        # Данные
+        for trip in trips:
+            # Продолжительность
+            duration = ""
+            if trip.started_at and trip.completed_at:
+                start = trip.started_at.replace(tzinfo=None) if isinstance(trip.started_at, datetime) else trip.started_at
+                end = trip.completed_at.replace(tzinfo=None) if isinstance(trip.completed_at, datetime) else trip.completed_at
+                diff = end - start
+                hours = diff.total_seconds() // 3600
+                minutes = (diff.total_seconds() % 3600) // 60
+                duration = f"{int(hours)}ч {int(minutes)}м"
+
+            # Информация о заказе
+            order = trip.order
+            vehicle = trip.vehicle
+
+            # Статистика по грузам
+            cargo_count = 0
+            total_weight = 0
+            total_volume = 0
+            routes = []
+
+            if order and order.cargos:
+                cargo_count = len(order.cargos)
+                total_weight = sum(c.weight * c.quantity for c in order.cargos)
+                total_volume = sum(c.length * c.width * c.height * c.quantity for c in order.cargos)
+                routes = list(set(f"{c.departure} → {c.destination}" for c in order.cargos))
+
+            # Статус на русском
+            status_text = {
+                "completed": "Завершен",
+                "in_progress": "В пути",
+                "cancelled": "Отменен"
+            }.get(trip.status, trip.status)
+
+            # Тип тента
+            tent_type = "Закрытый" if vehicle and vehicle.tent_type == "closed" else "Открытый" if vehicle and vehicle.tent_type == "open" else ""
+
+            # Форматируем даты
+            started_at = trip.started_at.strftime("%d.%m.%Y %H:%M") if trip.started_at else ""
+            completed_at = trip.completed_at.strftime("%d.%m.%Y %H:%M") if trip.completed_at else ""
+
+            # Добавляем строку
+            row = [
+                trip.id,
+                trip.order_id,
+                started_at,
+                completed_at,
+                duration,
+                vehicle.gos_number if vehicle else "",
+                vehicle.driver if vehicle else "",
+                vehicle.brand if vehicle else "",
+                vehicle.garage_number if vehicle else "",
+                tent_type,
+                status_text,
+                trip.distance_km or "",
+                trip.fuel_consumed or "",
+                trip.notes or "",
+                order.applicant if order else "",
+                order.department if order else "",
+                order.phone_number if order else "",
+                cargo_count,
+                round(total_weight, 2),
+                round(total_volume, 2),
+                "\n".join(routes) if routes else ""
+            ]
+            ws.append(row)
+
+        # Автоподбор ширины столбцов
+        for column in ws.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 50)
+            ws.column_dimensions[column_letter].width = adjusted_width
+
+        # Сохраняем в буфер
+        buffer = BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
+
+        # Определяем имя файла
+        filename = f"История_рейсов_{datetime.now().strftime('%Y-%m-%d_%H-%M')}.xlsx"
+
+        # Отправляем файл
+        return send_file(
+            buffer,
+            as_attachment=True,
+            download_name=filename,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
+    except Exception as e:
+        app.logger.error(f"Ошибка при экспорте истории рейсов: {str(e)}")
+        return jsonify({"error": f"Ошибка при экспорте: {str(e)}"}), 500
 
 @app.route("/export_orders")
 def export_orders():
@@ -1149,49 +1322,341 @@ def export_orders():
     return send_file(buffer, as_attachment=True, download_name="reyisy.xlsx",
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-@app.route("/ttn/<int:order_id>", methods=["GET"])
-def print_ttn(order_id):
-    order = Order.query.get_or_404(order_id)
-    if not order.vehicle:
-        return jsonify({"error": "Нет машины"}), 400
-    total_weight = sum(c.weight * c.quantity for c in order.cargos)
-    cargos_html = "".join([f"<tr><td>{c.name}</td><td>{c.quantity}</td><td>{c.weight * c.quantity}</td></tr>" for c in order.cargos])
-    ttn_html = f"""<html>
+
+def create_pdf_from_html(html_content):
+    """Создание PDF из HTML контента"""
+    pdf = BytesIO()
+
+    # Создаем контекст с указанием шрифта
+    context = {
+        'fontName': font_name,
+    }
+
+    # Конвертируем HTML в PDF
+    pisa_status = pisa.CreatePDF(
+        BytesIO(html_content.encode('UTF-8')),
+        dest=pdf,
+        encoding='UTF-8'
+    )
+
+    if pisa_status.err:
+        raise Exception(f"Ошибка генерации PDF: {pisa_status.err}")
+
+    pdf.seek(0)
+    return pdf
+
+
+def register_fonts():
+    """Регистрация TTF шрифтов"""
+    try:
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(current_dir)
+
+        # Пути к TTF шрифтам
+        ttf_fonts = [
+            os.path.join(project_root, 'fonts', 'arial.ttf'),
+            os.path.join(project_root, 'fonts', 'timesnewromanpsmt.ttf'),
+            os.path.join(project_root, 'fonts', 'timesbd.ttf'),  # Times New Roman Bold
+            r'C:\Windows\Fonts\times.ttf',
+            r'C:\Windows\Fonts\timesbd.ttf',
+        ]
+
+        for font_path in ttf_fonts:
+            if os.path.exists(font_path):
+                try:
+                    font_name = os.path.splitext(os.path.basename(font_path))[0]
+                    pdfmetrics.registerFont(TTFont(font_name, font_path))
+                    print(f"Зарегистрирован шрифт: {font_name}")
+                    return font_name
+                except Exception as e:
+                    print(f"Ошибка регистрации {font_path}: {e}")
+
+        return "Times-Roman"
+    except Exception as e:
+        print(f"Ошибка: {e}")
+        return "Times-Roman"
+
+
+
+
+font_name = register_fonts()
+
+@app.route("/debug_paths", methods=["GET"])
+def debug_paths():
+    """Отладочная информация о путях"""
+    import sys
+    import inspect
+
+    info = {
+        "current_file": __file__,
+        "current_dir": os.path.dirname(os.path.abspath(__file__)),
+        "project_root": os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "sys_path": sys.path,
+        "working_dir": os.getcwd(),
+    }
+
+    # Проверяем наличие шрифтов
+    font_paths = [
+        os.path.join(info["project_root"], 'fonts', 'Akrobat-Regular.otf'),
+        os.path.join(info["project_root"], 'fonts', 'arial.ttf'),
+        os.path.join(info["project_root"], 'fonts', 'Arial.ttf'),
+    ]
+
+    info["fonts"] = {}
+    for font_path in font_paths:
+        info["fonts"][font_path] = {
+            "exists": os.path.exists(font_path),
+            "size": os.path.getsize(font_path) if os.path.exists(font_path) else None,
+        }
+
+    return jsonify(info)
+
+def check_project_structure():
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    print(f"Текущая директория: {current_dir}")
+    print(f"Содержимое текущей директории:")
+    for item in os.listdir(current_dir):
+        print(f"  - {item}")
+
+    fonts_dir = os.path.join(current_dir, 'fonts')
+    print(f"\nПапка fonts существует: {os.path.exists(fonts_dir)}")
+    if os.path.exists(fonts_dir):
+        print("Файлы в папке fonts:")
+        for item in os.listdir(fonts_dir):
+            print(f"  - {item}")
+
+@app.route("/route_sheet/<int:order_id>", methods=["GET"])
+def print_route_sheet(order_id):
+    """Печать маршрутного листа заявки"""
+    try:
+        order = Order.query.get_or_404(order_id)
+
+        if not order.vehicle:
+            return jsonify({"error": "На заявку не назначена машина"}), 400
+
+        if order.status != "assigned":
+            return jsonify({"error": "Маршрутный лист можно печатать только для назначенных заявок"}), 400
+
+        # Формируем данные для маршрутного листа
+        vehicle = order.vehicle
+        cargos = order.cargos
+
+        # Общий вес
+        total_weight = sum(c.weight * c.quantity for c in cargos)
+
+        # Получаем все уникальные адреса из грузов
+        addresses = []
+        for cargo in cargos:
+            if cargo.destination not in addresses:
+                addresses.append(cargo.destination)
+
+        # Дата назначения
+        assignment_date = datetime.now().strftime("%d.%m.%Y")
+        if order.created_at:
+            assignment_date = order.created_at.strftime("%d.%m.%Y")
+
+        # Форматируем время отправления
+        preferred_time = ""
+        if order.preferred_departure_time:
+            time_obj = order.preferred_departure_time
+            if isinstance(time_obj, str):
+                time_obj = datetime.fromisoformat(time_obj.replace('Z', '+00:00'))
+            preferred_time = time_obj.strftime("%H:%M")
+
+        # Создаем HTML для маршрутного листа с указанием шрифта
+        route_sheet_html = f"""<!DOCTYPE html>
+<html lang="ru">
 <head>
-  <style>
-    table {{ border-collapse: collapse; width: 100%; }}
-    th, td {{ border: 1px solid black; padding: 8px; }}
-    h1 {{ text-align: center; }}
-  </style>
+    <meta charset="UTF-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+    <title>Маршрутный лист #{order.id}</title>
+    <style>
+        @page {{
+            size: A4;
+            margin: 15mm;
+        }}
+        body {{
+            font-family: '{font_name}', Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            font-size: 12pt;
+            line-height: 1.4;
+        }}
+        .header {{
+            text-align: center;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #000;
+            padding-bottom: 10px;
+        }}
+        .title {{
+            font-size: 16pt;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }}
+        .subtitle {{
+            font-size: 14pt;
+            margin-bottom: 15px;
+        }}
+        .info-block {{
+            margin: 10px 0;
+            font-size: 11pt;
+        }}
+        .info-label {{
+            font-weight: bold;
+        }}
+        .table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+            font-size: 10pt;
+        }}
+        .table th, .table td {{
+            border: 1px solid #000;
+            padding: 5px;
+            text-align: left;
+            vertical-align: top;
+        }}
+        .table th {{
+            background-color: #f2f2f2;
+            font-weight: bold;
+            text-align: center;
+        }}
+        .signature-block {{
+            margin-top: 40px;
+            display: flex;
+            justify-content: space-between;
+            page-break-inside: avoid;
+        }}
+        .signature {{
+            width: 45%;
+        }}
+        .signature-line {{
+            border-top: 1px solid #000;
+            margin-top: 30px;
+            padding-top: 5px;
+        }}
+        .footer {{
+            margin-top: 20px;
+            font-size: 9pt;
+            color: #666;
+            text-align: center;
+        }}
+        .page-break {{
+            page-break-before: always;
+        }}
+        .nowrap {{
+            white-space: nowrap;
+        }}
+    </style>
 </head>
 <body>
-  <h1>Товарно-транспортная накладная ТТН-1 № {order.id}</h1>
-  <p>Дата: {datetime.now().strftime('%d.%m.%Y')}</p>
-  <p>Грузоотправитель: ООО "САЗ"</p>
-  <p>Грузополучатель: По адресу назначения</p>
-  <p>Перевозчик: {order.vehicle.driver}, авто {order.vehicle.brand} ({order.vehicle.gos_number})</p>
-  <h2>Товарная часть</h2>
-  <table>
-    <tr><th>Наименование</th><th>Количество</th><th>Вес</th></tr>
-    {cargos_html}
-    <tr><th colspan="2">Итого</th><td>{total_weight} кг</td></tr>
-  </table>
-  <h2>Транспортная часть</h2>
-  <p>Пункт погрузки: {order.cargos[0].departure if order.cargos else '-'} </p>
-  <p>Пункт разгрузки: {order.cargos[-1].destination if order.cargos else '-'} </p>
-  <p>Подпись водителя: ___________________</p>
-  <p>Подпись грузоотправителя: ___________________</p>
+    <div class="header">
+        <div class="title">marshrut</div>
+        <div class="subtitle">к путевому листу № {order.id} от {assignment_date}</div>
+    </div>
+
+    <div class="info-block">
+        <div><span class="info-label">Водитель:</span> {vehicle.driver}</div>
+        <div><span class="info-label">Машина:</span> {vehicle.brand}, {vehicle.gos_number} (гаражный №{vehicle.garage_number})</div>
+        <div><span class="info-label">Тип тента:</span> {"Открытый" if vehicle.tent_type == "open" else "Закрытый"}</div>
+        <div><span class="info-label">Заявитель:</span> {order.applicant}</div>
+        <div><span class="info-label">Отдел:</span> {order.department}</div>
+        <div><span class="info-label">Телефон:</span> {order.phone_number or "Не указан"}</div>
+        <div><span class="info-label">Желаемое время отправления:</span> {preferred_time or "Не указано"}</div>
+        <div><span class="info-label">Примечание:</span> {order.note or "Нет"}</div>
+    </div>
+
+    <table class="table">
+        <thead>
+            <tr>
+                <th>№</th>
+                <th>Заявка</th>
+                <th>Адрес доставки</th>
+                <th>Планируемое прибытие</th>
+                <th>Время работы</th>
+                <th>Вес, кг</th>
+                <th>Телефон</th>
+                <th>Комментарий</th>
+                <th>Примечание</th>
+            </tr>
+        </thead>
+        <tbody>"""
+
+        # Добавляем строки с грузами
+        for i, cargo in enumerate(cargos, 1):
+            route_sheet_html += f"""
+            <tr>
+                <td class="nowrap">{i}</td>
+                <td class="nowrap">{order.id}</td>
+                <td>{cargo.destination}</td>
+                <td class="nowrap">{preferred_time or "По графику"}</td>
+                <td class="nowrap">1 час</td>
+                <td class="nowrap">{cargo.weight * cargo.quantity}</td>
+                <td class="nowrap">{order.phone_number or "Не указан"}</td>
+                <td>{cargo.name} - {cargo.quantity} мест</td>
+                <td class="nowrap">{"Открытый" if cargo.tent_type == "open" else "Закрытый"}</td>
+            </tr>"""
+
+        # Итоговая строка
+        route_sheet_html += f"""
+            <tr>
+                <td colspan="5" style="text-align: right; font-weight: bold;">ИТОГО:</td>
+                <td style="font-weight: bold;">{total_weight} кг</td>
+                <td colspan="3"></td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="info-block">
+        <div><span class="info-label">Общий вес груза:</span> {total_weight} кг</div>
+        <div><span class="info-label">Количество грузов:</span> {len(cargos)}</div>
+        <div><span class="info-label">Маршрут:</span> {cargos[0].departure if cargos else ""} → {", ".join(addresses)}</div>
+    </div>
+
+    <div class="signature-block">
+        <div class="signature">
+            <div>Логистик выдал:</div>
+            <div class="signature-line"></div>
+            <div style="text-align: center; margin-top: 5px;">(подпись)</div>
+            <div style="text-align: center; margin-top: 10px;">(447756085)</div>
+        </div>
+
+        <div class="signature">
+            <div>Водитель сдал:</div>
+            <div class="signature-line"></div>
+            <div style="text-align: center; margin-top: 5px;">(подпись)</div>
+            <div style="text-align: center; margin-top: 10px;">{vehicle.driver}</div>
+        </div>
+    </div>
+
+    <div class="footer">
+        <div>Сформировано: {datetime.now().strftime("%d.%m.%Y %H:%M")}</div>
+        <div>Статус: {get_status_text(order.status)}</div>
+        <div>Система логистики САЗ</div>
+    </div>
 </body>
 </html>"""
-    pdf = pdfkit.from_string(ttn_html, False)
-    response = make_response(pdf)
-    response.headers['Content-Type'] = 'application/pdf'
-    response.headers['Content-Disposition'] = f'attachment; filename=ttn_{order.id}.pdf'
-    return response
+
+        # Генерируем PDF
+        pdf = create_pdf_from_html(route_sheet_html)
+
+        # Создаем ответ
+        response = make_response(pdf.getvalue())
+        response.headers['Content-Type'] = 'application/pdf'
+        filename = f'маршрутный_лист_{order.id}.pdf'
+        response.headers['Content-Disposition'] = f'attachment; filename="{quote(filename)}"'
+
+        return response
+
+    except Exception as e:
+        app.logger.error(f"Ошибка при генерации маршрутного листа: {str(e)}")
+        return jsonify({"error": f"Ошибка при генерации маршрутного листа: {str(e)}"}), 500
+
+
+
 
 
 @app.route("/orders/<int:id>", methods=["DELETE"])
-
 @login_required
 def delete_order(id):
 
@@ -1567,7 +2032,7 @@ def get_trips():
     if status:
         query = query.filter(Trip.status == status)
 
-    # Сортировка по дате начала (новые сверху)
+    # Сортировка по дате начала (новые сверху) и без пагинации
     trips = query.order_by(Trip.started_at.desc()).all()
 
     # Преобразуем в словари с подробной информацией

@@ -2,10 +2,6 @@
 const API = "";
 
 let splitDialogOrderId = null;
-let currentHistoryPage = 1;
-let historyPageSize = 20;
-let totalHistoryPages = 1;
-let currentHistoryFilters = {};
 let myMap = null;
 
 function showLoader() {
@@ -66,11 +62,8 @@ function hideLoader() {
 async function loadHistory() {
   try {
     document.body.style.cursor = "wait";
-
-    // Проверяем авторизацию
     const token = localStorage.getItem("token");
     if (!token) {
-      alert("Требуется авторизация");
       window.location.href = "login.html";
       return;
     }
@@ -90,7 +83,7 @@ async function loadHistory() {
       if (value) params.append(key, value);
     });
 
-    console.log("Загружаем историю рейсов с параметрами:", params.toString());
+    console.log("Загружаем историю рейсов...");
 
     const response = await fetch(`${API}/trips?${params.toString()}`, {
       headers: {
@@ -100,25 +93,44 @@ async function loadHistory() {
     });
 
     if (!response.ok) {
+      if (response.status === 401) {
+        window.location.href = "login.html";
+        return;
+      }
       const errorText = await response.text();
-      throw new Error(
-        `Ошибка загрузки истории: ${response.status} - ${errorText}`,
-      );
+      throw new Error(`Ошибка загрузки истории: ${response.status}`);
     }
 
     const trips = await response.json();
-    console.log("Получено рейсов:", trips.length, trips);
+    console.log("Получено рейсов:", trips.length);
 
     if (trips.length === 0) {
-      alert("История рейсов пуста. Пока нет завершенных рейсов.");
+      // Показываем сообщение в таблице вместо alert
+      const tbody = document.querySelector("#historyTable tbody");
+      if (tbody) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="14" style="text-align: center; padding: 20px; color: #666;">
+              Нет данных по рейсам для отображения
+            </td>
+          </tr>
+        `;
+      }
+    } else {
+      renderHistoryTable(trips);
     }
-
-    renderHistoryTable(trips);
   } catch (error) {
     console.error("Ошибка загрузки истории:", error);
-    alert(
-      "Не удалось загрузить историю рейсов. Проверьте консоль для подробностей.",
-    );
+    const tbody = document.querySelector("#historyTable tbody");
+    if (tbody) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="14" style="text-align: center; padding: 20px; color: #d32f2f;">
+            Ошибка загрузки: ${error.message}
+          </td>
+        </tr>
+      `;
+    }
   } finally {
     document.body.style.cursor = "default";
   }
@@ -374,7 +386,6 @@ async function completeTrip(tripId) {
 
 // Применение фильтров
 function applyHistoryFilters() {
-  currentHistoryPage = 1;
   loadHistory();
 }
 
@@ -386,17 +397,7 @@ function resetHistoryFilters() {
   document.getElementById("filterDriver").value = "";
   document.getElementById("filterStatus").value = "";
 
-  currentHistoryPage = 1;
   loadHistory();
-}
-
-// Пагинация
-function changeHistoryPage(delta) {
-  const newPage = currentHistoryPage + delta;
-  if (newPage >= 1 && newPage <= totalHistoryPages) {
-    currentHistoryPage = newPage;
-    loadHistory();
-  }
 }
 
 // Загрузка списка машин для фильтра
@@ -421,17 +422,48 @@ async function loadVehiclesForFilter() {
 }
 
 // Экспорт истории в Excel
+// Экспорт истории в Excel с индикатором загрузки
 async function exportHistoryToExcel() {
   try {
-    // Собираем все фильтры для экспорта
-    const params = new URLSearchParams(currentHistoryFilters);
-    params.delete("page");
-    params.delete("limit");
+    // Показываем индикатор загрузки
+    const loader = document.getElementById("exportLoader");
+    if (loader) loader.style.display = "block";
 
-    window.open(`${API}/export_orders?${params.toString()}`);
+    // Собираем текущие фильтры
+    const filters = {
+      date_from: document.getElementById("filterDateFrom")?.value || "",
+      date_to: document.getElementById("filterDateTo")?.value || "",
+      vehicle_id: document.getElementById("filterVehicle")?.value || "",
+      driver: document.getElementById("filterDriver")?.value || "",
+      status: document.getElementById("filterStatus")?.value || "",
+    };
+
+    // Строим URL для экспорта истории рейсов
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value) params.append(key, value);
+    });
+
+    // Формируем полный URL с токеном
+    const token = localStorage.getItem("token");
+    const url = `${API}/export_trips?${params.toString()}`;
+
+    // Открываем в новом окне
+    const newWindow = window.open(url, "_blank");
+
+    // Если новое окно заблокировано, показываем ссылку
+    if (!newWindow) {
+      alert("Всплывающие окна заблокированы. Скачайте файл по ссылке: " + url);
+    }
   } catch (error) {
     console.error("Ошибка экспорта:", error);
-    alert("Ошибка при экспорте истории");
+    alert("Ошибка при экспорте истории: " + error.message);
+  } finally {
+    // Скрываем индикатор через 2 секунды
+    setTimeout(() => {
+      const loader = document.getElementById("exportLoader");
+      if (loader) loader.style.display = "none";
+    }, 2000);
   }
 }
 
@@ -580,12 +612,12 @@ function renderOrdersTable(orders) {
       actionButtons = `
         <button class="btn" onclick="completeOrder(${order.id})">Завершить рейс</button>
         <button class="btn" onclick="viewOrderDetails(${order.id})">Подробно</button>
-        <button class="btn" onclick="printTTN(${order.id})" style="background:#4caf50;">ТТН</button>
+        <button class="btn" onclick="printRouteSheet(${order.id})" style="background:#4caf50;">Маршрутный лист</button>
       `;
     } else if (order.status === "completed") {
       actionButtons = `
         <button class="btn" onclick="viewOrderDetails(${order.id})">Подробно</button>
-        <button class="btn" onclick="printTTN(${order.id})" style="background:#4caf50;">ТТН</button>
+        <button class="btn" onclick="printRouteSheet(${order.id})" style="background:#4caf50;">Маршрутный лист</button>
       `;
     } else {
       actionButtons = `<button class="btn" onclick="viewOrderDetails(${order.id})">Подробно</button>`;
@@ -998,12 +1030,17 @@ function renderActiveOrders(orders) {
         `
             : ""
         }
-        ${order.status === "assigned" ? `<button class="btn" onclick="completeOrder(${order.id})">Завершить</button>` : ""}
+        ${
+          order.status === "assigned"
+            ? `<button class="btn" onclick="completeOrder(${order.id})">Завершить</button>
+        <button class="btn" onclick="printRouteSheet(${order.id})" style="background:#4caf50;">Маршрутный лист</button>`
+            : ""
+        }
         <button class="btn" onclick="viewOrderDetails(${order.id})">Подробно</button>
         ${
           order.status === "assigned" || order.status === "completed"
             ? `
-          <button class="btn" onclick="printTTN(${order.id})" style="background:#4caf50;">ТТН</button>
+          <button class="btn" onclick="printRouteSheet(${order.id})" style="background:#4caf50;">Маршрутный лист</button>
         `
             : ""
         }
@@ -1672,6 +1709,11 @@ function showTab(tabId) {
 function printTTN(orderId) {
   window.open(`${API}/ttn/${orderId}`);
 }
+
+function printRouteSheet(orderId) {
+  window.open(`${API}/route_sheet/${orderId}`);
+}
+
 async function exportToExcel() {
   window.location = `${API}/export_orders`;
 }

@@ -10,6 +10,47 @@
         ></script>
     </head>
     <body>
+        <div
+            id="exportLoader"
+            style="
+                display: none;
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: white;
+                padding: 20px;
+                border-radius: 8px;
+                box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+                z-index: 9999;
+            "
+        >
+            <div style="text-align: center">
+                <div
+                    style="
+                        width: 40px;
+                        height: 40px;
+                        border: 4px solid #f3f3f3;
+                        border-top: 4px solid #3498db;
+                        border-radius: 50%;
+                        animation: spin 1s linear infinite;
+                        margin: 0 auto;
+                    "
+                ></div>
+                <p style="margin-top: 10px">Подготовка файла для экспорта...</p>
+            </div>
+        </div>
+
+        <style>
+            @keyframes spin {
+                0% {
+                    transform: rotate(0deg);
+                }
+                100% {
+                    transform: rotate(360deg);
+                }
+            }
+        </style>
         <h1>Диспетчерская САЗа</h1>
 
         <nav>
@@ -64,7 +105,7 @@
             }
         </script>
         <button onclick="exportToExcel()">Экспорт в Excel</button>
-        <!-- Добавьте этот блок после кнопки экспорта -->
+
         <div
             class="quick-actions"
             style="
@@ -430,20 +471,6 @@
                     </thead>
                     <tbody></tbody>
                 </table>
-            </div>
-
-            <!-- Пагинация -->
-            <div
-                id="historyPagination"
-                style="margin-top: 20px; text-align: center"
-            >
-                <button class="btn" onclick="changeHistoryPage(-1)">
-                    ← Назад
-                </button>
-                <span id="historyPageInfo" style="margin: 0 15px"></span>
-                <button class="btn" onclick="changeHistoryPage(1)">
-                    Вперед →
-                </button>
             </div>
         </div>
 
