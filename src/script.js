@@ -248,6 +248,31 @@ function updateCargoList(cargos) {
   });
 }
 
+async function logout() {
+  try {
+    const token = localStorage.getItem("token");
+    if (token) {
+      await fetch(`${API_URL}/logout`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+    }
+  } catch (error) {
+    console.error("Ошибка при выходе:", error);
+  } finally {
+    localStorage.removeItem("token");
+    // Очищаем все cookies
+    document.cookie.split(";").forEach(function (c) {
+      document.cookie = c
+        .replace(/^ +/, "")
+        .replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+    });
+    window.location.href = "login.html";
+  }
+}
+
 async function removeCargo(id) {
   await fetch(`${API_URL}/draft_cargos/${id}`, { method: "DELETE" });
   loadCargos();

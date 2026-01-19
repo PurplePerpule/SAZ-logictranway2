@@ -1735,6 +1735,33 @@ document.addEventListener("DOMContentLoaded", function () {
   }, 10000);
 });
 
+async function logout() {
+  try {
+    const token = localStorage.getItem("token");
+    if (token) {
+      await fetch(`${API}/logout`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+    }
+  } catch (error) {
+    console.error("Ошибка при выходе:", error);
+  } finally {
+    // Очищаем localStorage
+    localStorage.removeItem("token");
+    // Очищаем все cookies
+    document.cookie.split(";").forEach(function (c) {
+      document.cookie = c
+        .replace(/^ +/, "")
+        .replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+    });
+    // Перенаправляем на страницу входа
+    window.location.href = "login.html";
+  }
+}
+
 function initTabs() {
   // Добавляем обработчики для всех вкладок через делегирование событий
   const nav = document.querySelector("nav");

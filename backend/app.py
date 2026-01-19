@@ -31,6 +31,10 @@ login_manager.login_view = "login"
 def load_user(user_id):
     return User.query.get(int(user_id))
 
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=1)  # Сессия на 1 час
+app.config["SESSION_COOKIE_SECURE"] = True  # Только для HTTPS
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///" + os.path.join(basedir, "database.db")
@@ -1462,9 +1466,10 @@ _static_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "sr
 
 @app.route("/", methods=["GET"])
 def root_page():
-    return send_file(os.path.join(_static_root, "index.html"))
+    return send_file(os.path.join(_static_root, "login.html"))
 
 @app.route("/index.html")
+@login_required
 def index_html():
     return send_file(os.path.join(_static_root, "index.html"))
 
@@ -1472,7 +1477,10 @@ def index_html():
 def login_html():
     return send_file(os.path.join(_static_root, "login.html"))
 
+
 @app.route("/admin.html")
+@login_required
+@role_required("admin")
 def admin_html():
     return send_file(os.path.join(_static_root, "admin.html"))
 

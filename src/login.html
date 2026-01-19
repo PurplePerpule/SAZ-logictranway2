@@ -45,7 +45,30 @@
         <div style="text-align: center; margin-top: 20px; color: #666">
             <p>Для получения доступа обратитесь к администратору системы</p>
         </div>
-
+        <script>
+            // Проверяем, авторизован ли пользователь
+            const token = localStorage.getItem("token");
+            if (token) {
+                // Если есть токен, проверяем роль и перенаправляем
+                fetch(`${API}/me`, {
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                    },
+                })
+                    .then((response) => response.json())
+                    .then((user) => {
+                        if (user.role === "admin") {
+                            window.location.href = "admin.html";
+                        } else {
+                            window.location.href = "index.html";
+                        }
+                    })
+                    .catch(() => {
+                        // Если токен невалидный, очищаем и остаемся на странице входа
+                        localStorage.removeItem("token");
+                    });
+            }
+        </script>
         <script>
             const API = "";
             async function login() {
