@@ -580,12 +580,12 @@ function renderOrdersTable(orders) {
       actionButtons = `
         <button class="btn" onclick="completeOrder(${order.id})">Завершить рейс</button>
         <button class="btn" onclick="viewOrderDetails(${order.id})">Подробно</button>
-        <button class="btn" onclick="printTTN(${order.id})" style="background:#4caf50;">ТТН</button>
+        <button class="btn" onclick="printRouteSheet(${order.id})" style="background:#4caf50;">Маршрутный лист</button>
       `;
     } else if (order.status === "completed") {
       actionButtons = `
         <button class="btn" onclick="viewOrderDetails(${order.id})">Подробно</button>
-        <button class="btn" onclick="printTTN(${order.id})" style="background:#4caf50;">ТТН</button>
+        <button class="btn" onclick="printRouteSheet(${order.id})" style="background:#4caf50;">Маршрутный лист</button>
       `;
     } else {
       actionButtons = `<button class="btn" onclick="viewOrderDetails(${order.id})">Подробно</button>`;
@@ -1003,7 +1003,7 @@ function renderActiveOrders(orders) {
         ${
           order.status === "assigned" || order.status === "completed"
             ? `
-          <button class="btn" onclick="printTTN(${order.id})" style="background:#4caf50;">ТТН</button>
+            <button class="btn" onclick="printRouteSheet(${order.id})" style="background:#4caf50;">Маршрутный лист</button>
         `
             : ""
         }
@@ -1669,8 +1669,12 @@ function showTab(tabId) {
   }
 }
 
-function printTTN(orderId) {
-  window.open(`${API}/ttn/${orderId}`);
+function printRouteSheet(orderId) {
+  window.open(
+    `${API}/route_sheet/${orderId}`,
+    "_blank",
+    "width=1200,height=800",
+  );
 }
 async function exportToExcel() {
   window.location = `${API}/export_orders`;

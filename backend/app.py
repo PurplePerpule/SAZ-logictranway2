@@ -1153,49 +1153,547 @@ def export_orders():
     return send_file(buffer, as_attachment=True, download_name="reyisy.xlsx",
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-@app.route("/ttn/<int:order_id>", methods=["GET"])
-def print_ttn(order_id):
+@app.route("/route_sheet/<int:order_id>", methods=["GET"])
+def print_route_sheet(order_id):
+    """Генерация редактируемого маршрутного листа"""
     order = Order.query.get_or_404(order_id)
+
     if not order.vehicle:
-        return jsonify({"error": "Нет машины"}), 400
-    total_weight = sum(c.weight * c.quantity for c in order.cargos)
-    cargos_html = "".join([f"<tr><td>{c.name}</td><td>{c.quantity}</td><td>{c.weight * c.quantity}</td></tr>" for c in order.cargos])
-    ttn_html = f"""<html>
+        return jsonify({"error": "Нет назначенной машины"}), 400
+
+    # Формируем HTML для маршрутного листа
+    created_date = order.created_at.strftime("%d.%m.%Y") if order.created_at else datetime.now().strftime("%d.%m.%Y")
+    today_date = datetime.now().strftime("%d.%m.%Y")
+
+    # Таблица грузов - каждый груз отдельной строкой
+    cargo_table = ""
+    cargo_counter = 1
+
+    for cargo in order.cargos:
+        for i in range(cargo.quantity):  # Каждую единицу груза отдельной строкой
+            cargo_table += f"""
+            <tr>
+                <td>{cargo_counter}</td>
+                <td contenteditable="true" class="editable">{cargo.name} → {cargo.destination}</td>
+                <td contenteditable="true" class="editable">{cargo.destination}</td>
+                <td><input type="time" class="editable" value="09:00" style="width: 100%; border: none; background: transparent;"></td>
+                <td><input type="text" class="editable" value="1 ч" style="width: 100%; border: none; background: transparent;"></td>
+                <td>{cargo.weight} кг</td>
+                <td><input type="text" class="editable" value="{order.phone_number or ''}" style="width: 100%; border: none; background: transparent;"></td>
+                <td contenteditable="true" class="editable"></td>
+                <td contenteditable="true" class="editable"></td>
+            </tr>
+            """
+            cargo_counter += 1
+
+    route_sheet_html = f"""<!DOCTYPE html>
+<html>
 <head>
-  <style>
-    table {{ border-collapse: collapse; width: 100%; }}
-    th, td {{ border: 1px solid black; padding: 8px; }}
-    h1 {{ text-align: center; }}
-  </style>
+    <meta charset="UTF-8">
+    <title>Маршрутный лист №{order.id}</title>
+    <style>
+        @media print {{
+            @page {{
+                size: A4 landscape;
+                margin: 10mm;
+            }}
+
+            body {{
+                transform: scale(0.95);
+                transform-origin: top left;
+                width: 290mm;
+            }}
+
+            .no-print {{ display: none !important; }}
+            .print-only {{ display: block !important; }}
+            body {{ font-size: 10pt; }}
+            .page-break {{ page-break-before: always; }}
+
+            /* Убираем фон редактирования при печати */
+            .editable {{
+                background-color: transparent !important;
+                border: none !important;
+            }}
+
+            input.editable {{
+                background-color: transparent !important;
+                border: none !important;
+                appearance: none;
+                -webkit-appearance: none;
+            }}
+
+            /* Скрываем элементы ввода времени при печати */
+            input[type="time"] {{
+                border: none;
+                background: transparent;
+            }}
+
+            input[type="time"]::-webkit-calendar-picker-indicator {{
+                display: none;
+            }}
+        }}
+
+        body {{
+            font-family: 'Times New Roman', serif;
+            margin: 0;
+            padding: 15mm;
+            font-size: 11pt;
+            line-height: 1.2;
+            width: 290mm;
+            min-height: 200mm;
+        }}
+
+        .header {{
+            text-align: center;
+            margin-bottom: 10mm;
+        }}
+
+        .header h1 {{
+            font-size: 16pt;
+            font-weight: bold;
+            margin: 5mm 0;
+            text-transform: uppercase;
+        }}
+
+        .driver-info {{
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8mm;
+            font-size: 12pt;
+        }}
+
+        .driver-info div {{
+            width: 48%;
+        }}
+
+        .underline {{
+            border-bottom: 1px solid #000;
+            display: inline-block;
+            min-width: 150mm;
+            margin-left: 5mm;
+        }}
+
+        .document-title {{
+            text-align: center;
+            font-size: 14pt;
+            font-weight: bold;
+            margin: 6mm 0;
+        }}
+
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin: 5mm 0;
+            font-size: 9pt;
+            table-layout: fixed;
+        }}
+
+        th, td {{
+            border: 1px solid #000;
+            padding: 2mm;
+            text-align: left;
+            vertical-align: top;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+        }}
+
+        th {{
+            font-weight: bold;
+            background-color: #f0f0f0;
+            text-align: center;
+        }}
+
+        .col-no {{ width: 10mm; text-align: center; }}
+        .col-request {{ width: 50mm; }}
+        .col-address {{ width: 40mm; }}
+        .col-time {{ width: 20mm; }}
+        .col-weight {{ width: 15mm; text-align: center; }}
+        .col-phone {{ width: 25mm; }}
+        .col-comment {{ width: 35mm; }}
+        .col-note {{ width: 35mm; }}
+
+        .editable {{
+            min-height: 6mm;
+            outline: none;
+            width: 100%;
+            box-sizing: border-box;
+        }}
+
+        .editable:focus {{
+            background-color: #ffffcc;
+            border: 1px dashed #666 !important;
+        }}
+
+        .signatures {{
+            margin-top: 12mm;
+            font-size: 11pt;
+        }}
+
+        .signature-line {{
+            display: flex;
+            justify-content: space-between;
+            margin-top: 15mm;
+        }}
+
+        .signature-block {{
+            width: 45%;
+        }}
+
+        .signature-name {{
+            margin-bottom: 5mm;
+        }}
+
+        .signature-space {{
+            border-bottom: 1px solid #000;
+            height: 8mm;
+            margin-top: 2mm;
+        }}
+
+        .signature-label {{
+            font-size: 9pt;
+            color: #666;
+            margin-top: 1mm;
+        }}
+
+        .controls {{
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: white;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            z-index: 1000;
+        }}
+
+        .btn {{
+            padding: 8px 15px;
+            margin: 3px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 12px;
+            background: #f5f5f5;
+        }}
+
+        .btn-print {{ background: #4caf50; color: white; border-color: #4caf50; }}
+        .btn-edit {{ background: #2196f3; color: white; border-color: #2196f3; }}
+        .btn-save {{ background: #ff9800; color: white; border-color: #ff9800; }}
+
+        .no-print {{ display: block; }}
+        .print-only {{ display: none; }}
+
+        input[type="time"], input[type="text"] {{
+            font-family: 'Times New Roman', serif;
+            font-size: 9pt;
+            width: 100%;
+            box-sizing: border-box;
+            padding: 1mm;
+        }}
+
+        input[type="time"] {{
+            height: 7mm;
+        }}
+
+        .company-header {{
+            text-align: center;
+            font-size: 12pt;
+            font-weight: bold;
+            margin-bottom: 3mm;
+        }}
+
+        /* Стили для режима редактирования */
+        .edit-mode .editable {{
+            background-color: #ffffcc;
+            border: 1px dashed #999;
+        }}
+
+        .edit-mode input.editable {{
+            background-color: #ffffcc;
+            border: 1px dashed #999;
+        }}
+    </style>
 </head>
 <body>
-  <h1>Товарно-транспортная накладная ТТН-1 № {order.id}</h1>
-  <p>Дата: {datetime.now().strftime('%d.%m.%Y')}</p>
-  <p>Грузоотправитель: ООО "САЗ"</p>
-  <p>Грузополучатель: По адресу назначения</p>
-  <p>Перевозчик: {order.vehicle.driver}, авто {order.vehicle.brand} ({order.vehicle.gos_number})</p>
-  <h2>Товарная часть</h2>
-  <table>
-    <tr><th>Наименование</th><th>Количество</th><th>Вес</th></tr>
-    {cargos_html}
-    <tr><th colspan="2">Итого</th><td>{total_weight} кг</td></tr>
-  </table>
-  <h2>Транспортная часть</h2>
-  <p>Пункт погрузки: {order.cargos[0].departure if order.cargos else '-'} </p>
-  <p>Пункт разгрузки: {order.cargos[-1].destination if order.cargos else '-'} </p>
-  <p>Подпись водителя: ___________________</p>
-  <p>Подпись грузоотправителя: ___________________</p>
+    <div class="company-header">ООО "САЗ"</div>
+
+    <div class="driver-info">
+        <div>
+            Водитель: <span class="underline editable" contenteditable="false">{order.vehicle.driver}</span>
+        </div>
+        <div>
+            Машина: <span class="underline editable" contenteditable="false">{order.vehicle.brand} ({order.vehicle.gos_number})</span>
+        </div>
+    </div>
+
+    <div class="document-title">
+        Маршрутный лист от {today_date} к путевому листу №
+        <span class="editable underline" contenteditable="false" style="min-width: 30mm; display: inline-block; text-align: center;"></span>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th class="col-no">№</th>
+                <th class="col-request">Заявка</th>
+                <th class="col-address">Адрес</th>
+                <th class="col-time">Планируемое прибытие</th>
+                <th class="col-time">Время работы</th>
+                <th class="col-weight">Вес кг.</th>
+                <th class="col-phone">Телефон</th>
+                <th class="col-comment">Комментарий</th>
+                <th class="col-note">Примечание</th>
+            </tr>
+        </thead>
+        <tbody>
+            {cargo_table}
+        </tbody>
+    </table>
+
+    <div class="signatures">
+        <div class="signature-line">
+            <div class="signature-block">
+                <div class="signature-name">Логистик выдал:</div>
+                <div class="signature-space"></div>
+                <div class="signature-label">(подпись, ФИО)</div>
+            </div>
+
+            <div class="signature-block">
+                <div class="signature-name">Водитель сдал:</div>
+                <div class="signature-space"></div>
+                <div class="signature-label">(подпись, ФИО, дата)</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="controls no-print">
+        <button class="btn btn-edit" onclick="enableEditing()">✏️ Редактировать</button>
+        <button class="btn btn-save" onclick="saveChanges()" style="display:none;">💾 Сохранить</button>
+        <button class="btn btn-print" onclick="printDocument()">🖨️ Печать</button>
+        <button class="btn" onclick="window.close()">✕ Закрыть</button>
+    </div>
+
+    <script>
+        let isEditing = false;
+        let savedData = null;
+
+        function enableEditing() {{
+            isEditing = true;
+            document.body.classList.add('edit-mode');
+
+            // Активируем редактирование для всех элементов с классом editable
+            document.querySelectorAll('.editable').forEach(el => {{
+                el.setAttribute('contenteditable', 'true');
+            }});
+
+            // Активируем поля ввода
+            document.querySelectorAll('input').forEach(input => {{
+                input.removeAttribute('readonly');
+                input.style.border = '1px dashed #999';
+            }});
+
+            // Показываем/скрываем кнопки
+            document.querySelector('.btn-edit').style.display = 'none';
+            document.querySelector('.btn-save').style.display = 'inline-block';
+        }}
+
+        function disableEditing() {{
+            isEditing = false;
+            document.body.classList.remove('edit-mode');
+
+            // Деактивируем редактирование
+            document.querySelectorAll('.editable').forEach(el => {{
+                el.setAttribute('contenteditable', 'false');
+            }});
+
+            // Деактивируем поля ввода
+            document.querySelectorAll('input').forEach(input => {{
+                input.setAttribute('readonly', true);
+                input.style.border = 'none';
+            }});
+
+            // Показываем/скрываем кнопки
+            document.querySelector('.btn-edit').style.display = 'inline-block';
+            document.querySelector('.btn-save').style.display = 'none';
+        }}
+
+        function saveChanges() {{
+            const changes = {{
+                driver: document.querySelector('.driver-info .editable:first-child')?.textContent || '',
+                vehicle: document.querySelector('.driver-info .editable:last-child')?.textContent || '',
+                waybill_number: document.querySelector('.document-title .editable')?.textContent || '',
+                cargo_items: []
+            }};
+
+            // Сохраняем данные из таблицы
+            document.querySelectorAll('tbody tr').forEach((row) => {{
+                const cells = row.querySelectorAll('td');
+                if (cells.length >= 9) {{
+                    changes.cargo_items.push({{
+                        request: cells[1]?.textContent || '',
+                        address: cells[2]?.textContent || '',
+                        arrival_time: cells[3]?.querySelector('input')?.value || '',
+                        work_time: cells[4]?.querySelector('input')?.value || '',
+                        phone: cells[6]?.querySelector('input')?.value || '',
+                        comment: cells[7]?.textContent || '',
+                        note: cells[8]?.textContent || ''
+                    }});
+                }}
+            }});
+
+            savedData = changes;
+            localStorage.setItem('route_sheet_{order.id}', JSON.stringify(changes));
+
+            // Переключаемся в режим просмотра
+            disableEditing();
+
+            // Показываем уведомление
+            showNotification('Изменения сохранены');
+        }}
+
+        function showNotification(message) {{
+            const notification = document.createElement('div');
+            notification.textContent = message;
+            notification.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: #4caf50;
+                color: white;
+                padding: 10px 15px;
+                border-radius: 4px;
+                z-index: 1001;
+                animation: fadeInOut 3s ease-in-out;
+            `;
+
+            document.body.appendChild(notification);
+
+            // Удаляем уведомление через 3 секунды
+            setTimeout(() => {{
+                if (notification.parentNode) {{
+                    notification.parentNode.removeChild(notification);
+                }}
+            }}, 3000);
+        }}
+
+        // Создаем стили для анимации уведомления
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes fadeInOut {{
+                0% {{ opacity: 0; transform: translateY(-10px); }}
+                10% {{ opacity: 1; transform: translateY(0); }}
+                90% {{ opacity: 1; transform: translateY(0); }}
+                100% {{ opacity: 0; transform: translateY(-10px); }}
+            }}
+        `;
+        document.head.appendChild(style);
+
+        function printDocument() {{
+            // Сохраняем текущее состояние редактирования
+            const wasEditing = isEditing;
+
+            // Если мы в режиме редактирования, временно отключаем его для печати
+            if (wasEditing) {{
+                disableEditing();
+            }}
+
+            // Даем браузеру время на обновление DOM
+            setTimeout(() => {{
+                window.print();
+
+                // Если был режим редактирования, возвращаем его
+                if (wasEditing) {{
+                    setTimeout(() => {{
+                        enableEditing();
+                    }}, 100);
+                }}
+            }}, 100);
+        }}
+
+        // Загружаем сохраненные данные при загрузке страницы
+        window.onload = function() {{
+            const saved = localStorage.getItem('route_sheet_{order.id}');
+            if (saved) {{
+                savedData = JSON.parse(saved);
+
+                // Восстанавливаем верхние поля
+                const driverSpan = document.querySelector('.driver-info .editable:first-child');
+                const vehicleSpan = document.querySelector('.driver-info .editable:last-child');
+                const waybillSpan = document.querySelector('.document-title .editable');
+
+                if (driverSpan && savedData.driver) driverSpan.textContent = savedData.driver;
+                if (vehicleSpan && savedData.vehicle) vehicleSpan.textContent = savedData.vehicle;
+                if (waybillSpan && savedData.waybill_number) waybillSpan.textContent = savedData.waybill_number;
+
+                // Восстанавливаем таблицу
+                if (savedData.cargo_items && savedData.cargo_items.length > 0) {{
+                    document.querySelectorAll('tbody tr').forEach((row, index) => {{
+                        if (savedData.cargo_items[index]) {{
+                            const cells = row.querySelectorAll('td');
+                            const item = savedData.cargo_items[index];
+
+                            if (cells[1]) cells[1].textContent = item.request || '';
+                            if (cells[2]) cells[2].textContent = item.address || '';
+
+                            const arrivalInput = cells[3]?.querySelector('input');
+                            const workInput = cells[4]?.querySelector('input');
+                            const phoneInput = cells[6]?.querySelector('input');
+
+                            if (arrivalInput) arrivalInput.value = item.arrival_time || '';
+                            if (workInput) workInput.value = item.work_time || '';
+                            if (phoneInput) phoneInput.value = item.phone || '';
+                            if (cells[7]) cells[7].textContent = item.comment || '';
+                            if (cells[8]) cells[8].textContent = item.note || '';
+                        }}
+                    }});
+                }}
+            }}
+        }}
+
+        // Автосохранение при потере фокуса
+        document.addEventListener('focusout', function(event) {{
+            if (isEditing && event.target.classList.contains('editable')) {{
+                saveChanges();
+            }}
+        }});
+
+        // Сохраняем при закрытии окна
+        window.addEventListener('beforeunload', function() {{
+            if (isEditing) {{
+                saveChanges();
+            }}
+        }});
+
+        // Горячие клавиши
+        document.addEventListener('keydown', function(event) {{
+            // Ctrl+S для сохранения
+            if ((event.ctrlKey || event.metaKey) && event.key === 's') {{
+                event.preventDefault();
+                if (isEditing) {{
+                    saveChanges();
+                }}
+            }}
+
+            // Ctrl+P для печати
+            if ((event.ctrlKey || event.metaKey) && event.key === 'p') {{
+                event.preventDefault();
+                printDocument();
+            }}
+
+            // Escape для выхода из режима редактирования
+            if (event.key === 'Escape' && isEditing) {{
+                disableEditing();
+            }}
+        }});
+    </script>
 </body>
 </html>"""
-    pdf = pdfkit.from_string(ttn_html, False)
-    response = make_response(pdf)
-    response.headers['Content-Type'] = 'application/pdf'
-    response.headers['Content-Disposition'] = f'attachment; filename=ttn_{order.id}.pdf'
-    return response
+
+    return route_sheet_html
 
 
 @app.route("/orders/<int:id>", methods=["DELETE"])
-
 @login_required
 def delete_order(id):
 
@@ -1218,6 +1716,40 @@ def delete_order(id):
     return jsonify({"message": "Заявка удалена"}), 200
 
 
+
+@app.route("/route_sheet/<int:order_id>/save", methods=["POST"])
+@login_required
+def save_route_sheet(order_id):
+    """Сохранение отредактированного маршрутного листа"""
+    order = Order.query.get_or_404(order_id)
+    data = request.get_json()
+
+    # Сохраняем изменения в отдельной таблице или в поле note
+    if not order.note:
+        order.note = ""
+
+    route_sheet_data = {
+        "departure": data.get("departure"),
+        "destination": data.get("destination"),
+        "distance": data.get("distance"),
+        "departure_time": data.get("departure_time"),
+        "special_notes": data.get("special_notes"),
+        "cargo_notes": data.get("cargo_notes", []),
+        "saved_by": current_user.username,
+        "saved_at": datetime.now(timezone.utc).isoformat()
+    }
+
+    # Добавляем к существующим примечаниям
+    if "Маршрутный лист" not in order.note:
+        order.note += f"\n\n=== Маршрутный лист ===\n"
+
+    order.note += f"Отредактирован: {datetime.now().strftime('%d.%m.%Y %H:%M')}\n"
+    order.note += f"Маршрут: {data.get('departure')} -> {data.get('destination')}\n"
+    order.note += f"Пробег: {data.get('distance')}\n"
+
+    db.session.commit()
+
+    return jsonify({"message": "Маршрутный лист сохранен", "order_id": order.id})
 
 @app.route("/orders/<int:id>", methods=["PUT"])
 @login_required
