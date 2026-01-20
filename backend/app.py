@@ -1200,9 +1200,9 @@ def print_route_sheet(order_id):
         body {{
             font-family: 'Times New Roman', serif;
             margin: 0;
-            padding: 15px;
-            font-size: 14px;
-            line-height: 1.4;
+            padding: 20px 40px;
+            font-size: 15px;
+            line-height: 1.5;
             background: white;
         }}
 
@@ -1214,15 +1214,16 @@ def print_route_sheet(order_id):
         .company-header {{
             text-align: center;
             font-weight: bold;
-            margin-bottom: 15px;
-            font-size: 18px;
+            margin-bottom: 20px;
+            font-size: 20px;
         }}
 
         .driver-info {{
             display: flex;
             justify-content: space-between;
-            margin-bottom: 20px;
-            font-size: 14px;
+            margin-bottom: 25px;
+            font-size: 16px;
+            padding: 0 10px;
         }}
 
         .driver-info div {{
@@ -1232,55 +1233,61 @@ def print_route_sheet(order_id):
         .underline {{
             border-bottom: 1px solid #000;
             display: inline-block;
-            min-width: 200px;
-            margin-left: 10px;
+            min-width: 250px;
+            margin-left: 15px;
         }}
 
         .document-title {{
             text-align: center;
             font-weight: bold;
-            margin: 20px 0;
-            font-size: 16px;
+            margin: 25px 0;
+            font-size: 18px;
+            padding: 0 10px;
         }}
 
         /* Таблица для экрана */
         table {{
             width: 100%;
             border-collapse: collapse;
-            margin: 20px 0;
-            font-size: 12px;
+            margin: 25px 0;
+            font-size: 14px;
             table-layout: fixed;
         }}
 
         th, td {{
             border: 1px solid #000;
-            padding: 8px 5px;
+            padding: 10px 8px;
             text-align: center;
             vertical-align: middle;
             overflow: hidden;
             text-overflow: ellipsis;
+            min-height: 40px;
         }}
 
         th {{
             font-weight: bold;
             background-color: #f0f0f0;
+            font-size: 15px;
+            padding: 12px 8px;
         }}
 
-        /* Ширины колонок в процентах */
-        .col-no {{ width: 5%; }}
-        .col-request {{ width: 18%; text-align: left; }}
-        .col-address {{ width: 15%; text-align: left; }}
-        .col-time {{ width: 10%; }}
-        .col-work {{ width: 8%; }}
-        .col-weight {{ width: 6%; }}
-        .col-phone {{ width: 10%; }}
-        .col-comment {{ width: 14%; text-align: left; }}
-        .col-note {{ width: 14%; text-align: left; }}
+        /* Увеличенные ширины колонок в процентах */
+        .col-no {{ width: 4%; }}
+        .col-request {{ width: 20%; text-align: left; }}
+        .col-address {{ width: 17%; text-align: left; }}
+        .col-time {{ width: 12%; }}
+        .col-work {{ width: 10%; }}
+        .col-weight {{ width: 8%; }}
+        .col-phone {{ width: 12%; }}
+        .col-comment {{ width: 16%; text-align: left; }}
+        .col-note {{ width: 17%; text-align: left; }}
 
         .editable {{
             outline: none;
             width: 100%;
             display: block;
+            min-height: 30px;
+            padding: 4px;
         }}
 
         .editable:focus {{
@@ -1289,13 +1296,14 @@ def print_route_sheet(order_id):
         }}
 
         .signatures {{
-            margin-top: 40px;
+            margin-top: 50px;
+            padding: 0 10px;
         }}
 
         .signature-line {{
             display: flex;
             justify-content: space-between;
-            margin-top: 30px;
+            margin-top: 40px;
         }}
 
         .signature-block {{
@@ -1303,20 +1311,21 @@ def print_route_sheet(order_id):
         }}
 
         .signature-name {{
-            margin-bottom: 10px;
+            margin-bottom: 15px;
             font-weight: bold;
+            font-size: 16px;
         }}
 
         .signature-space {{
             border-bottom: 1px solid #000;
-            height: 40px;
-            margin-top: 5px;
+            height: 50px;
+            margin-top: 8px;
         }}
 
         .signature-label {{
-            font-size: 11px;
+            font-size: 13px;
             color: #666;
-            margin-top: 5px;
+            margin-top: 8px;
             text-align: center;
         }}
 
@@ -1349,12 +1358,13 @@ def print_route_sheet(order_id):
 
         input[type="time"], input[type="text"] {{
             font-family: 'Times New Roman', serif;
-            font-size: 12px;
+            font-size: 14px;
             width: 100%;
             border: none;
             background: transparent;
             text-align: center;
-            padding: 2px;
+            padding: 6px;
+            height: 35px;
         }}
 
         input[type="time"]:focus, input[type="text"]:focus {{
@@ -1370,10 +1380,10 @@ def print_route_sheet(order_id):
                 display: none !important;
             }}
 
-            /* Сбрасываем все отступы и устанавливаем альбомную ориентацию */
+            /* Отступы: сверху 3см, слева/справа 1.75см */
             @page {{
                 size: landscape;
-                margin: 5mm;
+                margin: 3cm 1.75cm;
             }}
 
             /* Стили для тела документа при печати */
@@ -1382,8 +1392,8 @@ def print_route_sheet(order_id):
                 padding: 0;
                 width: 100%;
                 font-family: 'Times New Roman', serif !important;
-                font-size: 10pt !important;
-                line-height: 1.2 !important;
+                font-size: 12pt !important;  /* Увеличенный шрифт */
+                line-height: 1.3 !important;
                 background: white !important;
                 -webkit-print-color-adjust: exact !important;
                 print-color-adjust: exact !important;
@@ -1396,51 +1406,58 @@ def print_route_sheet(order_id):
                 margin: 0 !important;
             }}
 
-            /* Уменьшаем размеры для печати */
+            /* Увеличенные размеры для печати */
             .company-header {{
-                font-size: 14pt !important;
-                margin-bottom: 8pt !important;
+                font-size: 16pt !important;
+                margin-bottom: 12pt !important;
                 text-align: center !important;
             }}
 
             .driver-info {{
-                font-size: 11pt !important;
-                margin-bottom: 12pt !important;
+                font-size: 13pt !important;
+                margin-bottom: 16pt !important;
+                padding: 0 15pt !important;
             }}
 
             .underline {{
-                min-width: 150pt !important;
+                min-width: 180pt !important;
             }}
 
             .document-title {{
-                font-size: 12pt !important;
-                margin: 12pt 0 !important;
+                font-size: 14pt !important;
+                margin: 16pt 0 !important;
+                padding: 0 15pt !important;
             }}
 
-            /* Критически важные стили для таблицы при печати */
+            /* Стили для таблицы при печати */
             table {{
                 width: 100% !important;
                 max-width: 100% !important;
                 table-layout: fixed !important;
                 border-collapse: collapse !important;
                 border-spacing: 0 !important;
-                margin: 10pt 0 !important;
-                font-size: 9pt !important;
+                margin: 15pt 0 !important;
+                font-size: 11pt !important;  /* Увеличенный шрифт таблицы */
                 page-break-inside: auto !important;
             }}
 
             th, td {{
                 border: 1px solid black !important;
-                padding: 4pt 3pt !important;
-                font-size: 9pt !important;
-                line-height: 1.1 !important;
+                padding: 8pt 6pt !important;  /* Увеличенные отступы */
+                font-size: 11pt !important;
+                line-height: 1.3 !important;
                 overflow: visible !important;
                 text-overflow: clip !important;
                 white-space: normal !important;
                 word-wrap: break-word !important;
                 height: auto !important;
-                min-height: 20pt !important;
+                min-height: 25pt !important;  /* Увеличенная высота */
                 vertical-align: middle !important;
+            }}
+
+            th {{
+                font-size: 12pt !important;
+                padding: 10pt 6pt !important;
             }}
 
             /* Принудительный перенос длинных слов */
@@ -1449,29 +1466,31 @@ def print_route_sheet(order_id):
                 overflow-wrap: break-word !important;
             }}
 
-            /* Ширины колонок для печати (в процентах) */
+            /* Увеличенные ширины колонок для печати (в процентах) */
             .col-no {{ width: 4% !important; }}
-            .col-request {{ width: 17% !important; }}
-            .col-address {{ width: 14% !important; }}
-            .col-time {{ width: 9% !important; }}
-            .col-work {{ width: 7% !important; }}
-            .col-weight {{ width: 5% !important; }}
-            .col-phone {{ width: 9% !important; }}
-            .col-comment {{ width: 16% !important; }}
-            .col-note {{ width: 16% !important; }}
+            .col-request {{ width: 22% !important; }}
+            .col-address {{ width: 18% !important; }}
+            .col-time {{ width: 13% !important; }}
+            .col-work {{ width: 11% !important; }}
+            .col-weight {{ width: 9% !important; }}
+            .col-phone {{ width: 13% !important; }}
+            .col-comment {{ width: 17% !important; }}
+            .col-note {{ width: 18% !important; }}
 
             /* Скрываем элементы редактирования при печати */
             .editable {{
                 background: transparent !important;
                 border: none !important;
+                min-height: 25pt !important;
             }}
 
             input[type="time"], input[type="text"] {{
                 border: none !important;
                 background: transparent !important;
-                font-size: 9pt !important;
+                font-size: 11pt !important;
                 -webkit-appearance: none !important;
                 appearance: none !important;
+                padding: 4pt !important;
             }}
 
             /* Скрываем индикатор выбора времени */
@@ -1485,15 +1504,21 @@ def print_route_sheet(order_id):
 
             /* Подписи */
             .signatures {{
-                margin-top: 20pt !important;
+                margin-top: 25pt !important;
+                padding: 0 15pt !important;
             }}
 
             .signature-line {{
-                margin-top: 15pt !important;
+                margin-top: 20pt !important;
             }}
 
             .signature-space {{
-                height: 20pt !important;
+                height: 25pt !important;
+            }}
+
+            .signature-name {{
+                font-size: 13pt !important;
+                margin-bottom: 10pt !important;
             }}
 
             /* Гарантируем черно-белую печать */
@@ -1522,9 +1547,9 @@ def print_route_sheet(order_id):
 
             .print-container {{
                 background: white;
-                padding: 20px;
+                padding: 30px;
                 margin: 20px auto;
-                max-width: 1200px;
+                max-width: 1800px;  /* Увеличенная максимальная ширина */
                 box-shadow: 0 0 10px rgba(0,0,0,0.1);
             }}
         }}
@@ -1534,16 +1559,16 @@ def print_route_sheet(order_id):
     <div class="print-container">
         <div class="driver-info">
 
-        <div>
-                Водитель: <span class= text-align:>{order.vehicle.driver}</span>
-                Машина: <span class= text-align:>{order.vehicle.brand} ({order.vehicle.gos_number})</span>
+            <div>
+                Водитель: <span class="text-align:left">{order.vehicle.driver}</span>
+                Машина: <span class="text-align:left">{order.vehicle.brand} ({order.vehicle.gos_number})</span>
             </div>
 
         </div>
 
         <div>
             Маршрутный лист от {today_date} к путевому листу № _____
-            <span class="editable underline" contenteditable="false" style="min-width: 50px; display: inline-block; text-align: left;"></span>
+            <span class="editable underline" contenteditable="false" style="min-width: 60px; display: inline-block; text-align: left;"></span>
         </div>
 
         <table>
@@ -1806,7 +1831,7 @@ def print_route_sheet(order_id):
             if (table) {{
                 const rowCount = table.querySelectorAll('tbody tr').length;
                 if (rowCount > 12) {{
-                    table.style.fontSize = '11px';
+                    table.style.fontSize = '12px';
                 }}
             }}
         }};
