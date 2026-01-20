@@ -1173,15 +1173,15 @@ def print_route_sheet(order_id):
         for i in range(cargo.quantity):  # Каждую единицу груза отдельной строкой
             cargo_table += f"""
             <tr>
-                <td>{cargo_counter}</td>
-                <td contenteditable="true" class="editable">{cargo.name} → {cargo.destination}</td>
-                <td contenteditable="true" class="editable">{cargo.destination}</td>
-                <td><input type="time" class="editable" value="09:00" style="width: 100%; border: none; background: transparent;"></td>
-                <td><input type="text" class="editable" value="1 ч" style="width: 100%; border: none; background: transparent;"></td>
-                <td>{cargo.weight} кг</td>
-                <td><input type="text" class="editable" value="{order.phone_number or ''}" style="width: 100%; border: none; background: transparent;"></td>
-                <td contenteditable="true" class="editable"></td>
-                <td contenteditable="true" class="editable"></td>
+                <td class="col-no">{cargo_counter}</td>
+                <td class="col-request" contenteditable="true" class="editable">{cargo.name} → {cargo.destination}</td>
+                <td class="col-address" contenteditable="true" class="editable">{cargo.destination}</td>
+                <td class="col-time"><input type="time" class="editable" value="09:00"></td>
+                <td class="col-work"><input type="text" class="editable" value="1 ч"></td>
+                <td class="col-weight">{cargo.weight} кг</td>
+                <td class="col-phone"><input type="text" class="editable" value="{order.phone_number or ''}"></td>
+                <td class="col-comment" contenteditable="true" class="editable"></td>
+                <td class="col-note" contenteditable="true" class="editable"></td>
             </tr>
             """
             cargo_counter += 1
@@ -1192,74 +1192,37 @@ def print_route_sheet(order_id):
     <meta charset="UTF-8">
     <title>Маршрутный лист №{order.id}</title>
     <style>
-        @media print {{
-            @page {{
-                size: A4 landscape;
-                margin: 10mm;
-            }}
-
-            body {{
-                transform: scale(0.95);
-                transform-origin: top left;
-                width: 290mm;
-            }}
-
-            .no-print {{ display: none !important; }}
-            .print-only {{ display: block !important; }}
-            body {{ font-size: 10pt; }}
-            .page-break {{ page-break-before: always; }}
-
-            /* Убираем фон редактирования при печати */
-            .editable {{
-                background-color: transparent !important;
-                border: none !important;
-            }}
-
-            input.editable {{
-                background-color: transparent !important;
-                border: none !important;
-                appearance: none;
-                -webkit-appearance: none;
-            }}
-
-            /* Скрываем элементы ввода времени при печати */
-            input[type="time"] {{
-                border: none;
-                background: transparent;
-            }}
-
-            input[type="time"]::-webkit-calendar-picker-indicator {{
-                display: none;
-            }}
+        /* Базовые стили для экрана */
+        * {{
+            box-sizing: border-box;
         }}
 
         body {{
             font-family: 'Times New Roman', serif;
             margin: 0;
-            padding: 15mm;
-            font-size: 11pt;
-            line-height: 1.2;
-            width: 290mm;
-            min-height: 200mm;
+            padding: 15px;
+            font-size: 14px;
+            line-height: 1.4;
+            background: white;
         }}
 
-        .header {{
+        .print-container {{
+            width: 100%;
+            max-width: 100%;
+        }}
+
+        .company-header {{
             text-align: center;
-            margin-bottom: 10mm;
-        }}
-
-        .header h1 {{
-            font-size: 16pt;
             font-weight: bold;
-            margin: 5mm 0;
-            text-transform: uppercase;
+            margin-bottom: 15px;
+            font-size: 18px;
         }}
 
         .driver-info {{
             display: flex;
             justify-content: space-between;
-            margin-bottom: 8mm;
-            font-size: 12pt;
+            margin-bottom: 20px;
+            font-size: 14px;
         }}
 
         .driver-info div {{
@@ -1269,54 +1232,55 @@ def print_route_sheet(order_id):
         .underline {{
             border-bottom: 1px solid #000;
             display: inline-block;
-            min-width: 150mm;
-            margin-left: 5mm;
+            min-width: 200px;
+            margin-left: 10px;
         }}
 
         .document-title {{
             text-align: center;
-            font-size: 14pt;
             font-weight: bold;
-            margin: 6mm 0;
+            margin: 20px 0;
+            font-size: 16px;
         }}
 
+        /* Таблица для экрана */
         table {{
             width: 100%;
             border-collapse: collapse;
-            margin: 5mm 0;
-            font-size: 9pt;
+            margin: 20px 0;
+            font-size: 12px;
             table-layout: fixed;
         }}
 
         th, td {{
             border: 1px solid #000;
-            padding: 2mm;
-            text-align: left;
-            vertical-align: top;
-            word-wrap: break-word;
-            overflow-wrap: break-word;
+            padding: 8px 5px;
+            text-align: center;
+            vertical-align: middle;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }}
 
         th {{
             font-weight: bold;
             background-color: #f0f0f0;
-            text-align: center;
         }}
 
-        .col-no {{ width: 10mm; text-align: center; }}
-        .col-request {{ width: 50mm; }}
-        .col-address {{ width: 40mm; }}
-        .col-time {{ width: 20mm; }}
-        .col-weight {{ width: 15mm; text-align: center; }}
-        .col-phone {{ width: 25mm; }}
-        .col-comment {{ width: 35mm; }}
-        .col-note {{ width: 35mm; }}
+        /* Ширины колонок в процентах */
+        .col-no {{ width: 5%; }}
+        .col-request {{ width: 18%; text-align: left; }}
+        .col-address {{ width: 15%; text-align: left; }}
+        .col-time {{ width: 10%; }}
+        .col-work {{ width: 8%; }}
+        .col-weight {{ width: 6%; }}
+        .col-phone {{ width: 10%; }}
+        .col-comment {{ width: 14%; text-align: left; }}
+        .col-note {{ width: 14%; text-align: left; }}
 
         .editable {{
-            min-height: 6mm;
             outline: none;
             width: 100%;
-            box-sizing: border-box;
+            display: block;
         }}
 
         .editable:focus {{
@@ -1325,14 +1289,13 @@ def print_route_sheet(order_id):
         }}
 
         .signatures {{
-            margin-top: 12mm;
-            font-size: 11pt;
+            margin-top: 40px;
         }}
 
         .signature-line {{
             display: flex;
             justify-content: space-between;
-            margin-top: 15mm;
+            margin-top: 30px;
         }}
 
         .signature-block {{
@@ -1340,19 +1303,21 @@ def print_route_sheet(order_id):
         }}
 
         .signature-name {{
-            margin-bottom: 5mm;
+            margin-bottom: 10px;
+            font-weight: bold;
         }}
 
         .signature-space {{
             border-bottom: 1px solid #000;
-            height: 8mm;
-            margin-top: 2mm;
+            height: 40px;
+            margin-top: 5px;
         }}
 
         .signature-label {{
-            font-size: 9pt;
+            font-size: 11px;
             color: #666;
-            margin-top: 1mm;
+            margin-top: 5px;
+            text-align: center;
         }}
 
         .controls {{
@@ -1360,109 +1325,252 @@ def print_route_sheet(order_id):
             bottom: 20px;
             right: 20px;
             background: white;
-            padding: 10px;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 15px;
+            border: 2px solid #ccc;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
             z-index: 1000;
         }}
 
         .btn {{
-            padding: 8px 15px;
-            margin: 3px;
-            border: 1px solid #ccc;
-            border-radius: 3px;
+            padding: 10px 20px;
+            margin: 5px;
+            border: none;
+            border-radius: 4px;
             cursor: pointer;
-            font-size: 12px;
-            background: #f5f5f5;
+            font-size: 14px;
+            font-weight: bold;
         }}
 
-        .btn-print {{ background: #4caf50; color: white; border-color: #4caf50; }}
-        .btn-edit {{ background: #2196f3; color: white; border-color: #2196f3; }}
-        .btn-save {{ background: #ff9800; color: white; border-color: #ff9800; }}
-
-        .no-print {{ display: block; }}
-        .print-only {{ display: none; }}
+        .btn-print {{ background: #4caf50; color: white; }}
+        .btn-edit {{ background: #2196f3; color: white; }}
+        .btn-save {{ background: #ff9800; color: white; }}
+        .btn-close {{ background: #f44336; color: white; }}
 
         input[type="time"], input[type="text"] {{
             font-family: 'Times New Roman', serif;
-            font-size: 9pt;
+            font-size: 12px;
             width: 100%;
-            box-sizing: border-box;
-            padding: 1mm;
-        }}
-
-        input[type="time"] {{
-            height: 7mm;
-        }}
-
-        .company-header {{
+            border: none;
+            background: transparent;
             text-align: center;
-            font-size: 12pt;
-            font-weight: bold;
-            margin-bottom: 3mm;
+            padding: 2px;
         }}
 
-        /* Стили для режима редактирования */
-        .edit-mode .editable {{
-            background-color: #ffffcc;
-            border: 1px dashed #999;
+        input[type="time"]:focus, input[type="text"]:focus {{
+            background: #ffffcc;
+            border: 1px dashed #666 !important;
+            outline: none;
         }}
 
-        .edit-mode input.editable {{
-            background-color: #ffffcc;
-            border: 1px dashed #999;
+        /* Стили ТОЛЬКО для печати */
+        @media print {{
+            /* Скрываем все ненужное */
+            .no-print {{
+                display: none !important;
+            }}
+
+            /* Сбрасываем все отступы и устанавливаем альбомную ориентацию */
+            @page {{
+                size: landscape;
+                margin: 5mm;
+            }}
+
+            /* Стили для тела документа при печати */
+            body {{
+                margin: 0;
+                padding: 0;
+                width: 100%;
+                font-family: 'Times New Roman', serif !important;
+                font-size: 10pt !important;
+                line-height: 1.2 !important;
+                background: white !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }}
+
+            .print-container {{
+                width: 100% !important;
+                max-width: 100% !important;
+                padding: 0 !important;
+                margin: 0 !important;
+            }}
+
+            /* Уменьшаем размеры для печати */
+            .company-header {{
+                font-size: 14pt !important;
+                margin-bottom: 8pt !important;
+                text-align: center !important;
+            }}
+
+            .driver-info {{
+                font-size: 11pt !important;
+                margin-bottom: 12pt !important;
+            }}
+
+            .underline {{
+                min-width: 150pt !important;
+            }}
+
+            .document-title {{
+                font-size: 12pt !important;
+                margin: 12pt 0 !important;
+            }}
+
+            /* Критически важные стили для таблицы при печати */
+            table {{
+                width: 100% !important;
+                max-width: 100% !important;
+                table-layout: fixed !important;
+                border-collapse: collapse !important;
+                border-spacing: 0 !important;
+                margin: 10pt 0 !important;
+                font-size: 9pt !important;
+                page-break-inside: auto !important;
+            }}
+
+            th, td {{
+                border: 1px solid black !important;
+                padding: 4pt 3pt !important;
+                font-size: 9pt !important;
+                line-height: 1.1 !important;
+                overflow: visible !important;
+                text-overflow: clip !important;
+                white-space: normal !important;
+                word-wrap: break-word !important;
+                height: auto !important;
+                min-height: 20pt !important;
+                vertical-align: middle !important;
+            }}
+
+            /* Принудительный перенос длинных слов */
+            th, td {{
+                word-break: break-word !important;
+                overflow-wrap: break-word !important;
+            }}
+
+            /* Ширины колонок для печати (в процентах) */
+            .col-no {{ width: 4% !important; }}
+            .col-request {{ width: 17% !important; }}
+            .col-address {{ width: 14% !important; }}
+            .col-time {{ width: 9% !important; }}
+            .col-work {{ width: 7% !important; }}
+            .col-weight {{ width: 5% !important; }}
+            .col-phone {{ width: 9% !important; }}
+            .col-comment {{ width: 16% !important; }}
+            .col-note {{ width: 16% !important; }}
+
+            /* Скрываем элементы редактирования при печати */
+            .editable {{
+                background: transparent !important;
+                border: none !important;
+            }}
+
+            input[type="time"], input[type="text"] {{
+                border: none !important;
+                background: transparent !important;
+                font-size: 9pt !important;
+                -webkit-appearance: none !important;
+                appearance: none !important;
+            }}
+
+            /* Скрываем индикатор выбора времени */
+            input[type="time"]::-webkit-calendar-picker-indicator {{
+                display: none !important;
+            }}
+
+            input[type="time"]::-webkit-inner-spin-button {{
+                display: none !important;
+            }}
+
+            /* Подписи */
+            .signatures {{
+                margin-top: 20pt !important;
+            }}
+
+            .signature-line {{
+                margin-top: 15pt !important;
+            }}
+
+            .signature-space {{
+                height: 20pt !important;
+            }}
+
+            /* Гарантируем черно-белую печать */
+            * {{
+                color: black !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }}
+
+            /* Разрешаем разрыв страницы после таблицы */
+            .signatures {{
+                page-break-before: avoid !important;
+            }}
+
+            /* Убираем любые тени и скругления */
+            .btn, .controls, .no-print {{
+                display: none !important;
+            }}
+        }}
+
+        /* Дополнительные стили для экрана */
+        @media screen {{
+            body {{
+                background-color: #f5f5f5;
+            }}
+
+            .print-container {{
+                background: white;
+                padding: 20px;
+                margin: 20px auto;
+                max-width: 1200px;
+                box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            }}
         }}
     </style>
 </head>
 <body>
-    <div class="company-header">ООО "САЗ"</div>
+    <div class="print-container">
+        <div class="driver-info">
 
-    <div class="driver-info">
         <div>
-            Водитель: <span class="underline editable" contenteditable="false">{order.vehicle.driver}</span>
-        </div>
-        <div>
-            Машина: <span class="underline editable" contenteditable="false">{order.vehicle.brand} ({order.vehicle.gos_number})</span>
-        </div>
-    </div>
-
-    <div class="document-title">
-        Маршрутный лист от {today_date} к путевому листу №
-        <span class="editable underline" contenteditable="false" style="min-width: 30mm; display: inline-block; text-align: center;"></span>
-    </div>
-
-    <table>
-        <thead>
-            <tr>
-                <th class="col-no">№</th>
-                <th class="col-request">Заявка</th>
-                <th class="col-address">Адрес</th>
-                <th class="col-time">Планируемое прибытие</th>
-                <th class="col-time">Время работы</th>
-                <th class="col-weight">Вес кг.</th>
-                <th class="col-phone">Телефон</th>
-                <th class="col-comment">Комментарий</th>
-                <th class="col-note">Примечание</th>
-            </tr>
-        </thead>
-        <tbody>
-            {cargo_table}
-        </tbody>
-    </table>
-
-    <div class="signatures">
-        <div class="signature-line">
-            <div class="signature-block">
-                <div class="signature-name">Логистик выдал:</div>
-                <div class="signature-space"></div>
-                <div class="signature-label">(подпись, ФИО)</div>
+                Водитель: <span class= text-align:>{order.vehicle.driver}</span>
+                Машина: <span class= text-align:>{order.vehicle.brand} ({order.vehicle.gos_number})</span>
             </div>
 
-            <div class="signature-block">
-                <div class="signature-name">Водитель сдал:</div>
-                <div class="signature-space"></div>
-                <div class="signature-label">(подпись, ФИО, дата)</div>
+        </div>
+
+        <div>
+            Маршрутный лист от {today_date} к путевому листу № _____
+            <span class="editable underline" contenteditable="false" style="min-width: 50px; display: inline-block; text-align: left;"></span>
+        </div>
+
+        <table>
+            <thead>
+                <tr>
+                    <th class="col-no">№</th>
+                    <th class="col-request">Заявка</th>
+                    <th class="col-address">Адрес</th>
+                    <th class="col-time">Планируемое прибытие</th>
+                    <th class="col-work">Время работы</th>
+                    <th class="col-weight">Вес кг.</th>
+                    <th class="col-phone">Телефон</th>
+                    <th class="col-comment">Комментарий</th>
+                    <th class="col-note">Примечание</th>
+                </tr>
+            </thead>
+            <tbody>
+                {cargo_table}
+            </tbody>
+        </table>
+
+        <div class="signatures">
+            <div class="signature-line">
+                <div class="signature-block">
+                    <div class="signature-name">Логистик выдал:</div>
+                    <div class="signature-name">Водитель сдал:</div>
+                </div>
             </div>
         </div>
     </div>
@@ -1470,50 +1578,119 @@ def print_route_sheet(order_id):
     <div class="controls no-print">
         <button class="btn btn-edit" onclick="enableEditing()">✏️ Редактировать</button>
         <button class="btn btn-save" onclick="saveChanges()" style="display:none;">💾 Сохранить</button>
-        <button class="btn btn-print" onclick="printDocument()">🖨️ Печать</button>
-        <button class="btn" onclick="window.close()">✕ Закрыть</button>
+        <button class="btn btn-print" onclick="printOptimized()">🖨️ Печать</button>
+        <button class="btn btn-close" onclick="window.close()">✕ Закрыть</button>
     </div>
 
     <script>
         let isEditing = false;
         let savedData = null;
 
+        // Функция для подготовки к печати
+        function prepareForPrint() {{
+            // Сохраняем текущие значения полей ввода
+            document.querySelectorAll('input').forEach(input => {{
+                if (input.type === 'time' || input.type === 'text') {{
+                    // Создаем текстовый span с значением
+                    const span = document.createElement('span');
+                    span.textContent = input.value;
+                    span.style.display = 'inline-block';
+                    span.style.width = '100%';
+                    span.style.textAlign = 'center';
+
+                    // Заменяем input на span
+                    input.parentNode.insertBefore(span, input);
+                    input.style.display = 'none';
+                }}
+            }});
+
+            // Убираем все атрибуты contenteditable
+            document.querySelectorAll('[contenteditable="true"]').forEach(el => {{
+                el.setAttribute('contenteditable', 'false');
+            }});
+
+            // Принудительный reflow
+            document.body.offsetHeight;
+
+            return true;
+        }}
+
+        // Функция для восстановления после печати
+        function restoreAfterPrint() {{
+            // Восстанавливаем поля ввода
+            document.querySelectorAll('td').forEach(td => {{
+                const span = td.querySelector('span');
+                const hiddenInput = td.querySelector('input[style*="display: none"]');
+
+                if (span && hiddenInput) {{
+                    // Возвращаем значение в input
+                    hiddenInput.value = span.textContent;
+                    hiddenInput.style.display = '';
+                    span.remove();
+                }}
+            }});
+
+            // Восстанавливаем режим редактирования если нужно
+            if (isEditing) {{
+                enableEditing();
+            }}
+        }}
+
+        // Оптимизированная печать
+        function printOptimized() {{
+            // Сохраняем изменения если в режиме редактирования
+            if (isEditing) {{
+                saveChanges();
+            }}
+
+            // Подготавливаем документ к печати
+            prepareForPrint();
+
+            // Запускаем печать с небольшой задержкой
+            setTimeout(() => {{
+                window.print();
+
+                // Восстанавливаем после печати
+                setTimeout(restoreAfterPrint, 500);
+            }}, 200);
+        }}
+
         function enableEditing() {{
             isEditing = true;
-            document.body.classList.add('edit-mode');
 
-            // Активируем редактирование для всех элементов с классом editable
             document.querySelectorAll('.editable').forEach(el => {{
                 el.setAttribute('contenteditable', 'true');
+                if (el.style) el.style.backgroundColor = '#ffffcc';
             }});
 
-            // Активируем поля ввода
             document.querySelectorAll('input').forEach(input => {{
                 input.removeAttribute('readonly');
-                input.style.border = '1px dashed #999';
+                if (input.style) {{
+                    input.style.backgroundColor = '#ffffcc';
+                    input.style.border = '1px dashed #999';
+                }}
             }});
 
-            // Показываем/скрываем кнопки
             document.querySelector('.btn-edit').style.display = 'none';
             document.querySelector('.btn-save').style.display = 'inline-block';
         }}
 
         function disableEditing() {{
             isEditing = false;
-            document.body.classList.remove('edit-mode');
 
-            // Деактивируем редактирование
             document.querySelectorAll('.editable').forEach(el => {{
                 el.setAttribute('contenteditable', 'false');
+                if (el.style) el.style.backgroundColor = '';
             }});
 
-            // Деактивируем поля ввода
             document.querySelectorAll('input').forEach(input => {{
                 input.setAttribute('readonly', true);
-                input.style.border = 'none';
+                if (input.style) {{
+                    input.style.backgroundColor = 'transparent';
+                    input.style.border = 'none';
+                }}
             }});
 
-            // Показываем/скрываем кнопки
             document.querySelector('.btn-edit').style.display = 'inline-block';
             document.querySelector('.btn-save').style.display = 'none';
         }}
@@ -1526,7 +1703,6 @@ def print_route_sheet(order_id):
                 cargo_items: []
             }};
 
-            // Сохраняем данные из таблицы
             document.querySelectorAll('tbody tr').forEach((row) => {{
                 const cells = row.querySelectorAll('td');
                 if (cells.length >= 9) {{
@@ -1545,10 +1721,7 @@ def print_route_sheet(order_id):
             savedData = changes;
             localStorage.setItem('route_sheet_{order.id}', JSON.stringify(changes));
 
-            // Переключаемся в режим просмотра
             disableEditing();
-
-            // Показываем уведомление
             showNotification('Изменения сохранены');
         }}
 
@@ -1561,63 +1734,42 @@ def print_route_sheet(order_id):
                 right: 20px;
                 background: #4caf50;
                 color: white;
-                padding: 10px 15px;
+                padding: 15px 20px;
                 border-radius: 4px;
                 z-index: 1001;
-                animation: fadeInOut 3s ease-in-out;
+                animation: slideIn 0.3s ease-out;
+                font-weight: bold;
+                box-shadow: 0 3px 10px rgba(0,0,0,0.2);
             `;
 
             document.body.appendChild(notification);
 
-            // Удаляем уведомление через 3 секунды
             setTimeout(() => {{
-                if (notification.parentNode) {{
-                    notification.parentNode.removeChild(notification);
-                }}
-            }}, 3000);
+                notification.style.animation = 'slideOut 0.3s ease-out';
+                setTimeout(() => notification.remove(), 300);
+            }}, 2000);
         }}
 
-        // Создаем стили для анимации уведомления
+        // Добавляем стили для анимации
         const style = document.createElement('style');
         style.textContent = `
-            @keyframes fadeInOut {{
-                0% {{ opacity: 0; transform: translateY(-10px); }}
-                10% {{ opacity: 1; transform: translateY(0); }}
-                90% {{ opacity: 1; transform: translateY(0); }}
-                100% {{ opacity: 0; transform: translateY(-10px); }}
+            @keyframes slideIn {{
+                from {{ transform: translateX(100%); opacity: 0; }}
+                to {{ transform: translateX(0); opacity: 1; }}
+            }}
+            @keyframes slideOut {{
+                from {{ transform: translateX(0); opacity: 1; }}
+                to {{ transform: translateX(100%); opacity: 0; }}
             }}
         `;
         document.head.appendChild(style);
 
-        function printDocument() {{
-            // Сохраняем текущее состояние редактирования
-            const wasEditing = isEditing;
-
-            // Если мы в режиме редактирования, временно отключаем его для печати
-            if (wasEditing) {{
-                disableEditing();
-            }}
-
-            // Даем браузеру время на обновление DOM
-            setTimeout(() => {{
-                window.print();
-
-                // Если был режим редактирования, возвращаем его
-                if (wasEditing) {{
-                    setTimeout(() => {{
-                        enableEditing();
-                    }}, 100);
-                }}
-            }}, 100);
-        }}
-
-        // Загружаем сохраненные данные при загрузке страницы
+        // Загружаем сохраненные данные
         window.onload = function() {{
             const saved = localStorage.getItem('route_sheet_{order.id}');
             if (saved) {{
                 savedData = JSON.parse(saved);
 
-                // Восстанавливаем верхние поля
                 const driverSpan = document.querySelector('.driver-info .editable:first-child');
                 const vehicleSpan = document.querySelector('.driver-info .editable:last-child');
                 const waybillSpan = document.querySelector('.document-title .editable');
@@ -1626,7 +1778,6 @@ def print_route_sheet(order_id):
                 if (vehicleSpan && savedData.vehicle) vehicleSpan.textContent = savedData.vehicle;
                 if (waybillSpan && savedData.waybill_number) waybillSpan.textContent = savedData.waybill_number;
 
-                // Восстанавливаем таблицу
                 if (savedData.cargo_items && savedData.cargo_items.length > 0) {{
                     document.querySelectorAll('tbody tr').forEach((row, index) => {{
                         if (savedData.cargo_items[index]) {{
@@ -1649,39 +1800,29 @@ def print_route_sheet(order_id):
                     }});
                 }}
             }}
-        }}
 
-        // Автосохранение при потере фокуса
-        document.addEventListener('focusout', function(event) {{
-            if (isEditing && event.target.classList.contains('editable')) {{
-                saveChanges();
+            // Автоматически подгоняем размер шрифта для таблицы
+            const table = document.querySelector('table');
+            if (table) {{
+                const rowCount = table.querySelectorAll('tbody tr').length;
+                if (rowCount > 12) {{
+                    table.style.fontSize = '11px';
+                }}
             }}
-        }});
-
-        // Сохраняем при закрытии окна
-        window.addEventListener('beforeunload', function() {{
-            if (isEditing) {{
-                saveChanges();
-            }}
-        }});
+        }};
 
         // Горячие клавиши
         document.addEventListener('keydown', function(event) {{
-            // Ctrl+S для сохранения
             if ((event.ctrlKey || event.metaKey) && event.key === 's') {{
                 event.preventDefault();
-                if (isEditing) {{
-                    saveChanges();
-                }}
+                if (isEditing) saveChanges();
             }}
 
-            // Ctrl+P для печати
             if ((event.ctrlKey || event.metaKey) && event.key === 'p') {{
                 event.preventDefault();
-                printDocument();
+                printOptimized();
             }}
 
-            // Escape для выхода из режима редактирования
             if (event.key === 'Escape' && isEditing) {{
                 disableEditing();
             }}
