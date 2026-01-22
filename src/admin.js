@@ -216,6 +216,39 @@ function renderHistoryTable(trips) {
   });
 }
 
+async function unassignVehicle(orderId) {
+  if (
+    !confirm(
+      "Снять машину с заявки? Машина будет освобождена, а заявка вернется в статус 'Новая'.",
+    )
+  )
+    return;
+
+  try {
+    const token = localStorage.getItem("token");
+    const response = await fetch(`${API}/orders/${orderId}/unassign`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    const result = await response.json();
+
+    if (response.ok) {
+      alert("Машина успешно снята с заявки");
+      loadOrders();
+      loadVehicles();
+    } else {
+      alert("Ошибка: " + result.error);
+    }
+  } catch (error) {
+    console.error("Ошибка:", error);
+    alert("Не удалось снять машину: " + error.message);
+  }
+}
+
 // Просмотр деталей рейса
 async function viewTripDetails(tripId) {
   try {
@@ -579,6 +612,7 @@ function renderOrdersTable(orders) {
     } else if (order.status === "assigned") {
       actionButtons = `
         <button class="btn" onclick="completeOrder(${order.id})">Завершить рейс</button>
+        <button class="btn" onclick="unassignVehicle(${order.id})" style="background:#ff9800;">Снять машину</button>
         <button class="btn" onclick="viewOrderDetails(${order.id})">Подробно</button>
         <button class="btn" onclick="printRouteSheet(${order.id})" style="background:#4caf50;">Маршрутный лист</button>
       `;
@@ -998,11 +1032,17 @@ function renderActiveOrders(orders) {
         `
             : ""
         }
-        ${order.status === "assigned" ? `<button class="btn" onclick="completeOrder(${order.id})">Завершить</button>` : ""}
+        ${
+          order.status === "assigned"
+            ? `<button class="btn" onclick="completeOrder(${order.id})">Завершить</button>
+        <button class="btn" onclick="unassignVehicle(${order.id})" style="background:#ff9800;">Снять машину</button>`
+            : ""
+        }
         <button class="btn" onclick="viewOrderDetails(${order.id})">Подробно</button>
         ${
           order.status === "assigned" || order.status === "completed"
             ? `
+
             <button class="btn" onclick="printRouteSheet(${order.id})" style="background:#4caf50;">Маршрутный лист</button>
         `
             : ""

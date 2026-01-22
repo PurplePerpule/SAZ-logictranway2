@@ -1917,6 +1917,51 @@ def save_route_sheet(order_id):
 
     return jsonify({"message": "Маршрутный лист сохранен", "order_id": order.id})
 
+
+@app.route("/orders/<int:id>/unassign", methods=["POST"])
+@login_required
+def unassign_vehicle(id):
+    """Снять назначенную машину с заявки"""
+    if not current_user.is_authenticated or current_user.role != "admin":
+        return jsonify({"error": "Только администратор"}), 403
+
+    order = Order.query.get_or_404(id)
+
+    if order.status != "assigned":
+        return jsonify({"error": "Можно снимать машину только с назначенных заявок"}), 400
+
+    if not order.vehicle_id:
+        return jsonify({"error": "У заявки нет назначенной машины"}), 400
+
+    # Находим активный рейс для этой заявки
+    trip = Trip.query.filter_by(order_id=order.id, status="in_progress").first()
+
+    # Освобождаем машину
+    vehicle = Vehicle.query.get(order.vehicle_id)
+    if vehicle:
+        vehicle.status = "free"
+
+    # Отменяем рейс (меняем статус на cancelled)
+    if trip:
+        trip.status = "cancelled"
+        trip.completed_at = datetime.now(timezone.utc)
+        trip.notes = f"Машина снята администратором {current_user.username}"
+
+    # Возвращаем заявку в статус "new"
+    order.status = "new"
+    order.vehicle_id = None
+
+    db.session.commit()
+
+    return jsonify({
+        "message": "Машина снята с заявки",
+        "order": order.to_dict(),
+        "vehicle_freed": vehicle.to_dict() if vehicle else None
+    }), 200
+
+
+
+
 @app.route("/orders/<int:id>", methods=["PUT"])
 @login_required
 def update_order(id):
