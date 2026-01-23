@@ -21,8 +21,18 @@
         </style>
     </head>
     <body>
-        <div style="text-align: right; margin: 10px 20px;">
-            <button onclick="logout()" style="background: #ff4444; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">
+        <div style="text-align: right; margin: 10px 20px">
+            <button
+                onclick="logout()"
+                style="
+                    background: #ff4444;
+                    color: white;
+                    border: none;
+                    padding: 8px 16px;
+                    border-radius: 4px;
+                    cursor: pointer;
+                "
+            >
                 Выйти
             </button>
         </div>
@@ -134,11 +144,12 @@
                     </div>
 
                     <div style="margin: 10px 0">
-                        <label for="preferred_time"
-                            >Желаемое время отправления (ЧЧ:ММ):</label
+                        <label for="preferred_date"
+                            >Желаемая дата отправления:</label
                         >
-                        <input type="time" id="preferred_time" step="300" />
+                        <input type="date" id="preferred_date" />
                     </div>
+
                     <div
                         style="
                             display: grid;
@@ -174,7 +185,6 @@
                             <option value="closed">Закрытый (тент)</option>
                             <option value="open">Открытый (бортовой)</option>
                         </select>
-                    </div>
                     </div>
                     <button
                         type="button"

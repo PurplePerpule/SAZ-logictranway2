@@ -2,6 +2,41 @@ ymaps.ready(init);
 
 var myMap;
 
+// Проверка авторизации при загрузке страницы
+document.addEventListener("DOMContentLoaded", function () {
+  const token = localStorage.getItem("token");
+  if (!token) {
+    window.location.href = "login.html";
+    return;
+  }
+
+  // Загружаем данные пользователя для автозаполнения
+  fetch(`${API_URL}/me`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+    .then((res) => (res.ok ? res.json() : null))
+    .then((user) => {
+      if (user) {
+        if (!document.getElementById("applicant").value) {
+          document.getElementById("applicant").value = user.full_name || "";
+        }
+        if (!document.getElementById("department").value) {
+          document.getElementById("department").value = user.department || "";
+        }
+        if (!document.getElementById("phone_number").value) {
+          document.getElementById("phone_number").value =
+            user.phone_number || "";
+        }
+      }
+    })
+    .catch((err) => console.error("Ошибка загрузки данных пользователя:", err));
+
+  // Загружаем сохраненные грузы
+  loadCargos();
+});
+
 function init() {
   myMap = new ymaps.Map("map", {
     center: [54.54, 26.38],
@@ -16,6 +51,7 @@ async function loadCargos() {
   const res = await fetch(`${API_URL}/draft_cargos`);
   const data = await res.json();
   updateCargoList(data);
+  updateCargoCount(data.length);
   buildRoute(data); // передаём
   return data;
 }
@@ -70,7 +106,6 @@ async function sendOrderToDispatcher() {
     return alert("Добавьте хотя бы один груз в список!");
   }
 
-  // Проверяем, залогинен ли пользователь
   const token = localStorage.getItem("token");
   if (!token) {
     alert("Для отправки заявки необходимо войти в систему");
@@ -78,77 +113,67 @@ async function sendOrderToDispatcher() {
     return;
   }
 
-  // Получаем данные пользователя
-  let userData = null;
-  try {
-    const res = await fetch(`${API_URL}/me`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-    if (res.ok) {
-      userData = await res.json();
-    }
-  } catch (err) {
-    console.error("Ошибка получения данных пользователя:", err);
-  }
-
-  // Используем данные из профиля по умолчанию
-  const applicant =
-    document.getElementById("applicant").value.trim() ||
-    userData?.full_name ||
-    "";
-  const department =
-    document.getElementById("department").value.trim() ||
-    userData?.department ||
-    "";
-  const phone_number =
-    document.getElementById("phone_number").value.trim() ||
-    userData?.phone_number ||
-    "";
+  // Получаем данные из полей формы
+  const applicant = document.getElementById("applicant").value.trim();
+  const department = document.getElementById("department").value.trim();
+  const phone_number = document.getElementById("phone_number").value.trim();
   const tent_type = document.getElementById("tent_type").value;
-  const preferred_time = document.getElementById("preferred_time").value;
+  const preferred_date = document.getElementById("preferred_date").value;
 
+  // Проверка обязательных полей
   if (!applicant) {
-    return alert("Укажите ФИО заявителя!");
+    alert("Укажите ФИО заявителя!");
+    return;
   }
   if (!department) {
-    return alert("Укажите отдел!");
+    alert("Укажите отдел!");
+    return;
   }
 
-  if (!confirm("Отправить заявку диспетчеру?")) return;
+  if (
+    !confirm(
+      `Отправить заявку диспетчеру?\n\nГрузов: ${cargos.length}\nЗаявитель: ${applicant}\nОтдел: ${department}`,
+    )
+  )
+    return;
 
   try {
+    const payload = {
+      applicant,
+      department,
+      phone_number: phone_number || null,
+      tent_type,
+      preferred_departure_date: preferred_date || null,
+    };
+
+    console.log("Отправка заявки:", payload);
+
     const res = await fetch(`${API_URL}/orders`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({
-        applicant,
-        department,
-        phone_number: phone_number || null,
-        tent_type,
-        preferred_departure_time: preferred_time || null,
-      }),
+      body: JSON.stringify(payload),
     });
 
-    if (res.ok) {
-      alert("Заявка успешно отправлена диспетчеру!");
-      document.getElementById("cargoForm").reset();
-      document.getElementById("applicant").value = "";
-      document.getElementById("department").value = "";
-      document.getElementById("phone_number").value = "";
-      document.getElementById("preferred_time").value = "";
-      myMap.geoObjects.removeAll();
-      updateCargoList([]);
-    } else {
+    if (!res.ok) {
       const err = await res.json();
-      alert("Ошибка: " + (err.error || "сервер не отвечает"));
+      throw new Error(err.error || `Ошибка сервера: ${res.status}`);
     }
-  } catch (err) {
-    alert("Нет связи с сервером");
+
+    const order = await res.json();
+    alert(`Заявка #${order.id} успешно отправлена диспетчеру!`);
+
+    // Сбрасываем только форму грузов, не данные заявителя
+    document.getElementById("cargoForm").reset();
+    document.getElementById("preferred_date").value = "";
+    myMap.geoObjects.removeAll();
+    updateCargoList([]);
+    updateCargoCount(0);
+  } catch (error) {
+    console.error("Ошибка отправки заявки:", error);
+    alert("Ошибка: " + error.message);
   }
 }
 
@@ -186,64 +211,107 @@ async function pickCar() {
 
 async function addToList() {
   const formData = {
-    name: document.getElementById("name").value,
+    name: document.getElementById("name").value.trim(),
     weight: parseFloat(document.getElementById("weight").value),
     length: parseFloat(document.getElementById("length").value),
     width: parseFloat(document.getElementById("width").value),
     height: parseFloat(document.getElementById("height").value),
     quantity: parseInt(document.getElementById("quantity").value),
-    departure: document.getElementById("departure").value,
-    destination: document.getElementById("destination").value,
-    tent_type: document.getElementById("tent_type").value, // Добавляем тип тента
+    departure: document.getElementById("departure").value.trim(),
+    destination: document.getElementById("destination").value.trim(),
+    tent_type: document.getElementById("tent_type").value,
   };
 
-  const {
-    name,
-    departure,
-    destination,
-    weight,
-    length,
-    width,
-    height,
-    quantity,
-  } = formData;
-
-  if (!name || !departure || !destination) {
-    return alert("Введите название груза, пункт отправки и пункт назначения");
+  // Проверка обязательных полей
+  if (!formData.name || !formData.departure || !formData.destination) {
+    alert("Заполните: название груза, пункт отправки и пункт назначения");
+    return;
   }
 
-  if ([weight, length, width, height, quantity].some((v) => isNaN(v))) {
-    return alert("Числовые поля заполнены неверно");
+  // Проверка числовых полей
+  if (
+    [
+      formData.weight,
+      formData.length,
+      formData.width,
+      formData.height,
+      formData.quantity,
+    ].some((v) => isNaN(v) || v <= 0)
+  ) {
+    alert("Числовые поля должны быть заполнены корректно (больше 0)");
+    return;
   }
 
-  await fetch(`${API_URL}/draft_cargos`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(formData),
-  });
+  try {
+    const response = await fetch(`${API_URL}/draft_cargos`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${localStorage.getItem("token")}`,
+      },
+      body: JSON.stringify(formData),
+    });
 
-  document.getElementById("cargoForm").reset();
-  loadCargos();
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || "Ошибка сервера");
+    }
+
+    document.getElementById("cargoForm").reset();
+    await loadCargos();
+  } catch (error) {
+    console.error("Ошибка добавления груза:", error);
+    alert("Ошибка: " + error.message);
+  }
+}
+
+function updateCargoCount(count) {
+  const countElement = document.getElementById("cargoCount");
+  if (countElement) {
+    countElement.textContent = count;
+  }
 }
 
 function updateCargoList(cargos) {
   const tbody = document.getElementById("cargoTable").querySelector("tbody");
+  if (!tbody) return;
+
   tbody.innerHTML = "";
+
+  if (cargos.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="10" style="text-align: center; padding: 20px; color: #666;">
+          Нет добавленных грузов
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
   cargos.forEach((cargo) => {
-    let row = document.createElement("tr");
+    const row = document.createElement("tr");
     const tentTypeText = cargo.tent_type === "open" ? "Открытый" : "Закрытый";
+    const volume = (cargo.length * cargo.width * cargo.height).toFixed(2);
+    const totalWeight = (cargo.weight * cargo.quantity).toFixed(1);
+
     row.innerHTML = `
-        <td>${cargo.name}</td>
-        <td>${cargo.weight}</td>
-        <td>${cargo.length}</td>
-        <td>${cargo.width}</td>
-        <td>${cargo.height}</td>
-        <td>${cargo.quantity}</td>
-        <td>${tentTypeText}</td> <!-- НОВАЯ ЯЧЕЙКА -->
-        <td>${cargo.departure}</td>
-        <td>${cargo.destination}</td>
-        <td><button onclick="removeCargo(${cargo.id})">Удалить</button></td>
-        `;
+      <td>${cargo.name}</td>
+      <td>${cargo.weight} кг</td>
+      <td>${cargo.length} м</td>
+      <td>${cargo.width} м</td>
+      <td>${cargo.height} м</td>
+      <td>${cargo.quantity}</td>
+      <td>${tentTypeText}</td>
+      <td>${cargo.departure}</td>
+      <td>${cargo.destination}</td>
+      <td>
+        <button onclick="removeCargo(${cargo.id})"
+                style="background: #dc3545; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer;">
+          Удалить
+        </button>
+      </td>
+    `;
     tbody.appendChild(row);
   });
 }
@@ -274,6 +342,23 @@ async function logout() {
 }
 
 async function removeCargo(id) {
-  await fetch(`${API_URL}/draft_cargos/${id}`, { method: "DELETE" });
-  loadCargos();
+  if (!confirm("Удалить этот груз из заявки?")) return;
+
+  try {
+    const response = await fetch(`${API_URL}/draft_cargos/${id}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem("token")}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error("Ошибка удаления груза");
+    }
+
+    await loadCargos();
+  } catch (error) {
+    console.error("Ошибка удаления груза:", error);
+    alert("Не удалось удалить груз");
+  }
 }

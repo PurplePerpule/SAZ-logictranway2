@@ -575,14 +575,13 @@ function renderOrdersTable(orders) {
       });
     }
 
-    // Форматируем желаемое время
-    let preferredTime = "-";
-    if (order.preferred_departure_time) {
-      const time = new Date(order.preferred_departure_time);
-      preferredTime = time.toLocaleTimeString("ru-RU", {
-        hour: "2-digit",
-        minute: "2-digit",
-      });
+    // Форматируем желаемую дату отправления (используем preferred_departure_date)
+    let preferredDate = "-";
+    if (order.preferred_departure_date) {
+      // order.preferred_departure_date приходит в формате "2024-12-15"
+      // Преобразуем в русский формат даты
+      const [year, month, day] = order.preferred_departure_date.split("-");
+      preferredDate = `${day}.${month}.${year}`;
     }
 
     // Определяем маршрут
@@ -629,7 +628,7 @@ function renderOrdersTable(orders) {
       <td><input type="checkbox" class="order-checkbox" value="${order.id}" onchange="updateSelection()"></td>
       <td>${order.id}</td>
       <td>${createdDate}</td>
-      <td>${preferredTime}</td>
+      <td>${preferredDate}</td>
       <td>${route}</td>
       <td>${order.cargos ? order.cargos.length : 0}</td>
       <td>${getStatusText(order.status)}</td>
@@ -1518,15 +1517,13 @@ async function openEditModal(orderId) {
     document.getElementById("editPhone").value = order.phone_number || "";
     document.getElementById("editNote").value = order.note || "";
 
-    // Заполняем время
-    if (order.preferred_departure_time) {
-      const time = new Date(order.preferred_departure_time);
-      const hours = time.getHours().toString().padStart(2, "0");
-      const minutes = time.getMinutes().toString().padStart(2, "0");
-      document.getElementById("editPreferredTime").value =
-        `${hours}:${minutes}`;
+    // ЗАМЕНА: Заполняем ДАТУ вместо времени
+    if (order.preferred_departure_date) {
+      // order.preferred_departure_date приходит в формате "2024-12-15"
+      document.getElementById("editPreferredDate").value =
+        order.preferred_departure_date;
     } else {
-      document.getElementById("editPreferredTime").value = "";
+      document.getElementById("editPreferredDate").value = "";
     }
 
     document.getElementById("editOrderModal").style.display = "block";
@@ -1571,8 +1568,8 @@ async function saveOrderChanges() {
     department: document.getElementById("editDepartment").value,
     phone_number: document.getElementById("editPhone").value,
     tent_type: document.getElementById("editTentType").value,
-    preferred_departure_time:
-      document.getElementById("editPreferredTime").value || null,
+    preferred_departure_date:
+      document.getElementById("editPreferredDate").value || null,
     note: document.getElementById("editNote").value,
   };
 

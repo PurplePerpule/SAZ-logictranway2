@@ -153,7 +153,7 @@ class Order(db.Model):
     department = db.Column(db.String(100), nullable=False, default="Не указан")
     phone_number = db.Column(db.String(20), nullable=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    preferred_departure_time = db.Column(db.DateTime, nullable=True)
+    preferred_departure_date = db.Column(db.Date, nullable=True)
     priority = db.Column(db.String(20), default="normal")  # НОВОЕ: high, normal, low
 
     # Добавьте эти отношения
@@ -173,7 +173,7 @@ class Order(db.Model):
             "applicant": self.applicant,
             "department": self.department,
             "phone_number": self.phone_number,
-            "preferred_departure_time": self.preferred_departure_time.isoformat() if self.preferred_departure_time else None,
+            "preferred_departure_date": self.preferred_departure_date.isoformat() if self.preferred_departure_date else None,
             "user_id": self.user_id,
             "priority": self.priority,
         }
@@ -482,37 +482,29 @@ def add_order():
     department = data.get("department") or current_user.department or "Не указан"
     phone_number = data.get("phone_number") or current_user.phone_number
 
-    # УДАЛЯЕМ проверку на одинаковый тип тента
     draft_cargos = DraftCargo.query.filter_by(user_id=current_user.id).all()
 
     if not draft_cargos:
         return jsonify({"error": "Нет грузов в заявке"}), 400
 
-    # Обрабатываем желаемое время отправления
-    preferred_departure_time = None
-    if data.get("preferred_departure_time"):
+    # Обрабатываем желаемую ДАТУ отправления (ВМЕСТО времени)
+    preferred_departure_date = None
+    if data.get("preferred_departure_date"):
         try:
-            time_str = data["preferred_departure_time"]
-            if ":" in time_str and len(time_str.split(":")) == 2:
-                hours, minutes = map(int, time_str.split(":"))
-                preferred_departure_time = datetime.combine(
-                    datetime.now().date(),
-                    time(hour=hours, minute=minutes)
-                )
-            else:
-                preferred_departure_time = datetime.fromisoformat(time_str.replace("Z", "+00:00"))
+            date_str = data["preferred_departure_date"]
+            # Преобразуем строку в дату (формат YYYY-MM-DD)
+            preferred_departure_date = datetime.strptime(date_str, "%Y-%m-%d").date()
         except Exception as e:
-            return jsonify({"error": f"Неверный формат времени: {str(e)}"}), 400
+            return jsonify({"error": f"Неверный формат даты: {str(e)}"}), 400
 
     # Создаём заявку с привязкой к пользователю
     order = Order(
         applicant=applicant,
         department=department,
         phone_number=phone_number,
-        # УДАЛЯЕМ: tent_type=tent_type,
         status="new",
         user_id=current_user.id,
-        preferred_departure_time=preferred_departure_time
+        preferred_departure_date=preferred_departure_date  # Используем новое поле
     )
     db.session.add(order)
     db.session.flush()
@@ -528,7 +520,7 @@ def add_order():
             quantity=draft.quantity,
             departure=draft.departure,
             destination=draft.destination,
-            tent_type=draft.tent_type,  # Сохраняем тип тента груза
+            tent_type=draft.tent_type,
         )
         db.session.add(cargo)
         db.session.flush()
@@ -757,29 +749,31 @@ from app import app, db, Order, Trip
 from datetime import datetime, timezone, timedelta
 
 with app.app_context():
-    # Находим заявки, которые назначены или завершены
+    # Сначала убедимся, что таблицы существуют
+    db.create_all()
+
+    # Затем выполняем миграцию
     orders = Order.query.filter(Order.status.in_(["assigned", "completed"])).all()
 
-    print(f"Найдено {len(orders)} заявок для создания рейсов")
-
-    for i, order in enumerate(orders, 1):
-        # Проверяем, нет ли уже рейса для этой заявки
-        existing_trip = Trip.query.filter_by(order_id=order.id).first()
-        if not existing_trip:
-            trip = Trip(
-                order_id=order.id,
-                vehicle_id=order.vehicle_id,
-                started_at=order.created_at,
-                status="completed" if order.status == "completed" else "in_progress",
-                completed_at=datetime.now(timezone.utc) if order.status == "completed" else None,
-                distance_km=100.5 + i * 10,  # Тестовые данные
-                fuel_consumed=30.2 + i * 2
-            )
-            db.session.add(trip)
-            print(f"Создан рейс для заявки #{order.id}")
-
-    db.session.commit()
-    print("Рейсы созданы!")
+    if orders:
+        print(f"Мигрируем {len(orders)} заявок в рейсы...")
+        for i, order in enumerate(orders, 1):
+            existing_trip = Trip.query.filter_by(order_id=order.id).first()
+            if not existing_trip:
+                trip = Trip(
+                    order_id=order.id,
+                    vehicle_id=order.vehicle_id,
+                    started_at=order.created_at,
+                    status="completed" if order.status == "completed" else "in_progress",
+                    completed_at=datetime.now(timezone.utc) if order.status == "completed" else None,
+                    distance_km=100.5 + i * 10,
+                    fuel_consumed=30.2 + i * 2
+                )
+                db.session.add(trip)
+        db.session.commit()
+        print("Миграция завершена!")
+    else:
+        print("Нет заявок для миграции")
 
     @app.route("/complete_trip_with_data/<int:order_id>", methods=["POST"])
     @login_required
@@ -990,7 +984,7 @@ def auto_distribute_smart():
             # Сначала по приоритету (high > normal > low)
             Order.priority.desc(),
             # Затем по времени отправления (раньше -> позже)
-            Order.preferred_departure_time.asc()
+            Order.preferred_departure_date.asc()  # ВМЕСТО preferred_departure_time
         ).all()
 
         # Получаем свободные машины
@@ -1131,21 +1125,21 @@ def export_orders():
     wb: Workbook = Workbook()
     ws: Worksheet = wb.active or wb.create_sheet("Рейсы")
     ws.title = "Рейсы"
-    ws.append(["ID", "Создано", "Желаемое время", "Статус", "Водитель", "Гос. номер", "Грузов", "Общий вес"])
+    ws.append(["ID", "Создано", "Желаемая дата", "Статус", "Водитель", "Гос. номер", "Грузов", "Общий вес"])
     for o in orders:
         created = o.created_at.strftime("%d.%m.%Y %H:%M") if o.created_at else "-"
 
-        # Форматируем желаемое время
-        preferred_time = "-"
-        if o.preferred_departure_time:
-            preferred_time = o.preferred_departure_time.strftime("%H:%M")
+        # Форматируем желаемую ДАТУ (ВМЕСТО времени)
+        preferred_date = "-"
+        if o.preferred_departure_date:
+            preferred_date = o.preferred_departure_date.strftime("%d.%m.%Y")  # Формат даты
 
         status = get_status_text(o.status)
         driver = o.vehicle.driver if o.vehicle else "-"
         gos_number = o.vehicle.gos_number if o.vehicle else "-"
         cargo_count = len(o.cargos)
         total_weight = sum(c.weight * c.quantity for c in o.cargos) if o.cargos else 0
-        ws.append([o.id, created, preferred_time, status, driver, gos_number, cargo_count, total_weight])
+        ws.append([o.id, created, preferred_date, status, driver, gos_number, cargo_count, total_weight])
 
     buffer = BytesIO()
     wb.save(buffer)
@@ -1981,24 +1975,15 @@ def update_order(id):
     order.note = data.get("note", order.note)
 
     # Обновляем желаемое время отправления
-    if "preferred_departure_time" in data:
-        if data["preferred_departure_time"]:
+    if "preferred_departure_date" in data:
+        if data["preferred_departure_date"]:
             try:
-                time_str = data["preferred_departure_time"]
-                if ":" in time_str and len(time_str.split(":")) == 2:
-                    hours, minutes = map(int, time_str.split(":"))
-                    order.preferred_departure_time = datetime.combine(
-                        datetime.now().date(),
-                        time(hour=hours, minute=minutes)
-                    )
-                else:
-                    order.preferred_departure_time = datetime.fromisoformat(
-                        data["preferred_departure_time"].replace("Z", "+00:00")
-                    )
+                date_str = data["preferred_departure_date"]
+                order.preferred_departure_date = datetime.strptime(date_str, "%Y-%m-%d").date()
             except Exception as e:
-                return jsonify({"error": f"Неверный формат времени: {str(e)}"}), 400
+                return jsonify({"error": f"Неверный формат даты: {str(e)}"}), 400
         else:
-            order.preferred_departure_time = None
+            order.preferred_departure_date = None
 
     db.session.commit()
     return jsonify(order.to_dict()), 200
@@ -2261,19 +2246,20 @@ def after_request(response):
     return response
 
 def check_order_deadlines():
-    """Проверяет заявки, у которых подходит срок отправления"""
+    """Проверяет заявки, у которых подходит срок отправления по ДАТЕ"""
     while True:
         with app.app_context():
             now = datetime.now(timezone.utc)
+            # Проверяем заявки, у которых желаемая дата - сегодня или вчера (просроченные)
             urgent_orders = Order.query.filter(
                 Order.status == 'new',
-                Order.preferred_departure_time != None,
-                Order.preferred_departure_time <= now + timedelta(hours=2)
+                Order.preferred_departure_date != None,
+                Order.preferred_departure_date <= now.date()  # Сравниваем ДАТЫ
             ).all()
 
             for order in urgent_orders:
                 # Можно отправить уведомление
-                print(f"СРОЧНО: Заявка #{order.id} требует отправления в {order.preferred_departure_time}")
+                print(f"СРОЧНО: Заявка #{order.id} требует отправления {order.preferred_departure_date}")
 
         time.sleep(300)  # Проверять каждые 5 минут
 
