@@ -478,6 +478,9 @@ def add_order():
 
     data = request.get_json()
 
+    print(f"[DEBUG add_order] Полученные данные: {data}")
+    print(f"[DEBUG add_order] preferred_departure_date: {data.get('preferred_departure_date')}")
+
     applicant = data.get("applicant") or current_user.full_name or "Не указан"
     department = data.get("department") or current_user.department or "Не указан"
     phone_number = data.get("phone_number") or current_user.phone_number

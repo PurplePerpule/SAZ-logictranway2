@@ -120,7 +120,13 @@ async function sendOrderToDispatcher() {
   const tent_type = document.getElementById("tent_type").value;
   const preferred_date = document.getElementById("preferred_date").value;
 
-  // Проверка обязательных полей
+  // ПРОВЕРКА ОБЯЗАТЕЛЬНЫХ ПОЛЕЙ
+  if (!preferred_date) {
+    alert("Пожалуйста, укажите желаемую дату отправления!");
+    document.getElementById("preferred_date").focus();
+    return;
+  }
+
   if (!applicant) {
     alert("Укажите ФИО заявителя!");
     return;
@@ -132,7 +138,7 @@ async function sendOrderToDispatcher() {
 
   if (
     !confirm(
-      `Отправить заявку диспетчеру?\n\nГрузов: ${cargos.length}\nЗаявитель: ${applicant}\nОтдел: ${department}`,
+      `Отправить заявку диспетчеру?\n\nДата отправления: ${formatDate(preferred_date)}\nГрузов: ${cargos.length}\nЗаявитель: ${applicant}\nОтдел: ${department}`,
     )
   )
     return;
@@ -143,7 +149,7 @@ async function sendOrderToDispatcher() {
       department,
       phone_number: phone_number || null,
       tent_type,
-      preferred_departure_date: preferred_date || null,
+      preferred_departure_date: preferred_date, // Обязательно отправляем дату
     };
 
     console.log("Отправка заявки:", payload);
@@ -163,18 +169,30 @@ async function sendOrderToDispatcher() {
     }
 
     const order = await res.json();
-    alert(`Заявка #${order.id} успешно отправлена диспетчеру!`);
+    alert(
+      `Заявка #${order.id} успешно отправлена диспетчеру!\nДата: ${formatDate(preferred_date)}`,
+    );
 
-    // Сбрасываем только форму грузов, не данные заявителя
+    // Сбрасываем только форму грузов и список, НО НЕ ДАТУ!
     document.getElementById("cargoForm").reset();
-    document.getElementById("preferred_date").value = "";
     myMap.geoObjects.removeAll();
     updateCargoList([]);
     updateCargoCount(0);
+
+    // Можно спросить, хочет ли пользователь очистить дату для новой заявки
+    if (confirm("Заявка отправлена. Хотите очистить дату для новой заявки?")) {
+      document.getElementById("preferred_date").value = "";
+    }
   } catch (error) {
     console.error("Ошибка отправки заявки:", error);
     alert("Ошибка: " + error.message);
   }
+}
+
+function formatDate(dateString) {
+  if (!dateString) return "";
+  const [year, month, day] = dateString.split("-");
+  return `${day}.${month}.${year}`;
 }
 
 async function pickCar() {
@@ -207,6 +225,27 @@ async function pickCar() {
     console.error("Match error:", error);
     alert(`Ошибка подбора машины: ${error.message || "Неизвестная ошибка"}`);
   }
+}
+
+function clearAll() {
+  if (!confirm("Очистить все поля формы? Это действие нельзя отменить.")) {
+    return;
+  }
+
+  document.getElementById("cargoForm").reset();
+  document.getElementById("applicant").value = "";
+  document.getElementById("department").value = "";
+  document.getElementById("phone_number").value = "";
+  document.getElementById("preferred_date").value = "";
+  myMap.geoObjects.removeAll();
+  updateCargoList([]);
+  updateCargoCount(0);
+
+  // Установить сегодняшнюю дату по умолчанию
+  const today = new Date().toISOString().split("T")[0];
+  document.getElementById("preferred_date").value = today;
+
+  alert("Все поля очищены. Дата установлена на сегодня.");
 }
 
 async function addToList() {
