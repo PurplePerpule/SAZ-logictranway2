@@ -52,13 +52,15 @@ class Cargo(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     weight = db.Column(db.Float, nullable=False)
-    length = db.Column(db.Float, nullable=False)
-    width = db.Column(db.Float, nullable=False)
+    length = db.Column(db.Float, nullable=True)  # Делаем nullable
+    width = db.Column(db.Float, nullable=True)   # Делаем nullable
+    height = db.Column(db.Float, nullable=True)  # Делаем nullable
+    volume = db.Column(db.Float, nullable=True)  # НОВОЕ: объем груза в м³
     quantity = db.Column(db.Integer, nullable=False)
     departure = db.Column(db.String(200), nullable=False)
     destination = db.Column(db.String(200), nullable=False)
-    height = db.Column(db.Float, nullable=False)
     tent_type = db.Column(db.String(20), nullable=False, default="closed")
+    cargo_type = db.Column(db.String(20), nullable=False, default="dimensions")  # НОВОЕ: тип груза - "dimensions" или "volume"
 
     # Добавьте это отношение
     orders = relationship("Order", secondary=order_cargo, back_populates="cargos")
@@ -70,25 +72,29 @@ class Cargo(db.Model):
             "weight": self.weight,
             "length": self.length,
             "width": self.width,
+            "height": self.height,
+            "volume": self.volume,  # НОВОЕ
             "quantity": self.quantity,
             "departure": self.departure,
             "destination": self.destination,
-            "height": self.height,
             "tent_type": self.tent_type,
+            "cargo_type": self.cargo_type,  # НОВОЕ
         }
 
 class DraftCargo(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     weight = db.Column(db.Float, nullable=False)
-    length = db.Column(db.Float, nullable=False)
-    width = db.Column(db.Float, nullable=False)
-    height = db.Column(db.Float, nullable=False)
+    length = db.Column(db.Float, nullable=True)  # Делаем nullable
+    width = db.Column(db.Float, nullable=True)   # Делаем nullable
+    height = db.Column(db.Float, nullable=True)  # Делаем nullable
+    volume = db.Column(db.Float, nullable=True)  # НОВОЕ: объем груза в м³
     quantity = db.Column(db.Integer, nullable=False)
     departure = db.Column(db.String(200), nullable=False)
     destination = db.Column(db.String(200), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     tent_type = db.Column(db.String(20), nullable=False, default="closed")
+    cargo_type = db.Column(db.String(20), nullable=False, default="dimensions")  # НОВОЕ
 
     # Добавьте это отношение
     user = relationship("User", back_populates="draft_cargos")
@@ -101,10 +107,12 @@ class DraftCargo(db.Model):
             "length": self.length,
             "width": self.width,
             "height": self.height,
+            "volume": self.volume,  # НОВОЕ
             "quantity": self.quantity,
             "departure": self.departure,
             "destination": self.destination,
             "tent_type": self.tent_type,
+            "cargo_type": self.cargo_type,  # НОВОЕ
         }
 
 
@@ -520,10 +528,12 @@ def add_order():
             length=draft.length,
             width=draft.width,
             height=draft.height,
+            volume=draft.volume,  # НОВОЕ: копируем объем
             quantity=draft.quantity,
             departure=draft.departure,
             destination=draft.destination,
             tent_type=draft.tent_type,
+            cargo_type=draft.cargo_type  # НОВОЕ: копируем тип груза
         )
         db.session.add(cargo)
         db.session.flush()
@@ -545,16 +555,20 @@ def get_draft_cargos():
 @login_required
 def add_draft_cargo():
     data = request.get_json()
+    print(f"[DEBUG] Received draft cargo data: {data}")  # Для отладки
+
     cargo = DraftCargo(
         name=data.get("name"),
         weight=data.get("weight"),
         length=data.get("length"),
         width=data.get("width"),
         height=data.get("height"),
+        volume=data.get("volume"),  # НОВОЕ: принимаем объем
         quantity=data.get("quantity"),
         departure=data.get("departure"),
         destination=data.get("destination"),
-        tent_type=data.get("tent_type", "closed"),  # Добавляем тип тента
+        tent_type=data.get("tent_type", "closed"),
+        cargo_type=data.get("cargo_type", "dimensions"),  # НОВОЕ: принимаем тип груза
         user_id=current_user.id
     )
     db.session.add(cargo)
@@ -656,27 +670,44 @@ def suggest_vehicle(order_id):
     if len(tent_types) > 1:
         return jsonify({"error": f"В заявке грузы с разными типами тента: {', '.join(tent_types)}. Невозможно подобрать одну машину."}), 400
 
-    # Берем тип тента из первого груза
     required_tent_type = cargo_list[0].get("tent_type", "closed")
 
     total_weight = sum(c["weight"] * c["quantity"] for c in cargo_list)
-    max_l = max(c["length"] for c in cargo_list)
-    max_w = max(c["width"] for c in cargo_list)
-    max_h_single = max(c["height"] for c in cargo_list)
+
+    # Рассчитываем максимальные габариты ИЛИ общий объем
+    max_l = 0
+    max_w = 0
+    max_h_single = 0
+    total_volume = 0
+
+    for c in cargo_list:
+        if c.get("cargo_type") == "dimensions" and c.get("length") and c.get("width") and c.get("height"):
+            # Груз с габаритами
+            max_l = max(max_l, c["length"])
+            max_w = max(max_w, c["width"])
+            max_h_single = max(max_h_single, c["height"])
+            total_volume += c["length"] * c["width"] * c["height"] * c["quantity"]
+        elif c.get("cargo_type") == "volume" and c.get("volume"):
+            # Груз с объемом
+            total_volume += c["volume"] * c["quantity"]
+            # Для объемных грузов не можем определить габариты, поэтому используем минимальные требования
+            max_l = max(max_l, 0.1)  # Минимальная длина
+            max_w = max(max_w, 0.1)  # Минимальная ширина
+            max_h_single = max(max_h_single, 0.1)  # Минимальная высота
 
     print(f"[DEBUG] Order #{order_id} - required tent type: {required_tent_type}")
-    print(f"[DEBUG] Total weight: {total_weight}, max dimensions: {max_l}x{max_w}x{max_h_single}")
+    print(f"[DEBUG] Total weight: {total_weight}, total volume: {total_volume}m³")
 
     def can_stack_in_height(cargos, v_height):
-        # Преобразуем в плоский список высот (каждая единица груза отдельно)
         heights = []
         for c in cargos:
             for _ in range(c["quantity"]):
-                heights.append(c["height"])
+                if c.get("cargo_type") == "dimensions" and c.get("height"):
+                    heights.append(c["height"])
+                else:
+                    # Для объемных грузов считаем, что они занимают всю высоту
+                    heights.append(v_height)
         heights.sort(reverse=True)
-
-        # Простая проверка: все грузы должны помещаться по высоте
-        # Можно улучшить логику штабелирования при необходимости
         return all(h <= v_height for h in heights)
 
     # Ищем машины с указанным типом тента
@@ -686,32 +717,40 @@ def suggest_vehicle(order_id):
         Vehicle.status != "in_repair"
     ).all()
 
-    print(f"[DEBUG] Found {len(vehicles)} vehicles with tent_type='{required_tent_type}' and status='free':")
-    for v in vehicles:
-        print(f"  - {v.garage_number} ({v.brand}): {v.capacity}kg, {v.length}x{v.width}x{v.height}m")
-
     best = None
     min_extra = float("inf")
     suitable_vehicles = []
 
     for v in vehicles:
-        if (v.capacity >= total_weight and
-            v.length >= max_l and
-            v.width >= max_w):
+        # Проверка по весу
+        if v.capacity < total_weight:
+            print(f"[DEBUG] Vehicle {v.garage_number} failed weight check: {v.capacity} < {total_weight}")
+            continue
 
-            height_check = v.height >= max_h_single or can_stack_in_height(cargo_list, v.height)
+        # Проверка по объему
+        vehicle_volume = v.length * v.width * v.height
+        if vehicle_volume < total_volume:
+            print(f"[DEBUG] Vehicle {v.garage_number} failed volume check: {vehicle_volume}m³ < {total_volume}m³")
+            continue
 
-            if height_check:
-                extra = v.capacity - total_weight
-                suitable_vehicles.append(v)
-                if extra < min_extra:
-                    min_extra = extra
-                    best = v
-                print(f"[DEBUG] Vehicle {v.garage_number} is suitable (extra: {extra}kg)")
-            else:
+        # Проверка по минимальным габаритам
+        if max_l > v.length or max_w > v.width:
+            print(f"[DEBUG] Vehicle {v.garage_number} failed dimensions check: {v.length}x{v.width}m vs {max_l}x{max_w}m")
+            continue
+
+        # Проверка по высоте
+        if v.height < max_h_single:
+            if not can_stack_in_height(cargo_list, v.height):
                 print(f"[DEBUG] Vehicle {v.garage_number} failed height check: {v.height} < {max_h_single}")
-        else:
-            print(f"[DEBUG] Vehicle {v.garage_number} failed capacity/dimensions check: {v.capacity}kg/{v.length}x{v.width}m vs required {total_weight}kg/{max_l}x{max_w}m")
+                continue
+
+        # Машина подходит
+        extra = v.capacity - total_weight
+        suitable_vehicles.append(v)
+        if extra < min_extra:
+            min_extra = extra
+            best = v
+        print(f"[DEBUG] Vehicle {v.garage_number} is suitable (extra: {extra}kg)")
 
     if best:
         return jsonify(best.to_dict())
@@ -725,18 +764,20 @@ def suggest_vehicle(order_id):
     ).all()
 
     for v in all_vehicles:
-        if (v.capacity >= total_weight and
-            v.length >= max_l and
-            v.width >= max_w):
-
-            height_check = v.height >= max_h_single or can_stack_in_height(cargo_list, v.height)
-
-            if height_check:
-                extra = v.capacity - total_weight
-                suitable_vehicles.append(v)
-                if extra < min_extra:
-                    min_extra = extra
-                    best = v
+        if (v.capacity >= total_weight):
+            vehicle_volume = v.length * v.width * v.height
+            if vehicle_volume >= total_volume:
+                # Проверка по минимальным габаритам
+                if not (max_l > v.length or max_w > v.width):
+                    # Проверка по высоте
+                    if v.height < max_h_single:
+                        if not can_stack_in_height(cargo_list, v.height):
+                            continue
+                    extra = v.capacity - total_weight
+                    suitable_vehicles.append(v)
+                    if extra < min_extra:
+                        min_extra = extra
+                        best = v
 
     if best:
         return jsonify({
@@ -745,7 +786,7 @@ def suggest_vehicle(order_id):
         })
 
     print(f"[DEBUG] No suitable vehicles at all")
-    return jsonify({"error": f"Подходящая машина не найдена. Требования: {total_weight}кг, {max_l}x{max_w}x{max_h_single}м"}), 404
+    return jsonify({"error": f"Подходящая машина не найдена. Требования: {total_weight}кг, {total_volume}м³"}), 404
 
 
 from app import app, db, Order, Trip

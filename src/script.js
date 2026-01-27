@@ -47,13 +47,38 @@ function init() {
 
 const API_URL = "";
 
+function toggleCargoType() {
+  const cargoType = document.getElementById("cargo_type").value;
+  const dimensionsBlock = document.getElementById("dimensions_block");
+  const volumeBlock = document.getElementById("volume_block");
+
+  if (cargoType === "dimensions") {
+    dimensionsBlock.style.display = "block";
+    volumeBlock.style.display = "none";
+  } else {
+    dimensionsBlock.style.display = "none";
+    volumeBlock.style.display = "block";
+  }
+}
+
 async function loadCargos() {
-  const res = await fetch(`${API_URL}/draft_cargos`);
-  const data = await res.json();
-  updateCargoList(data);
-  updateCargoCount(data.length);
-  buildRoute(data); // передаём
-  return data;
+  try {
+    const token = localStorage.getItem("token");
+    const res = await fetch(`${API_URL}/draft_cargos`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    const data = await res.json();
+    console.log("Загруженные грузы:", data); // Для отладки
+    updateCargoList(data);
+    updateCargoCount(data.length);
+    buildRoute(data);
+    return data;
+  } catch (error) {
+    console.error("Ошибка загрузки грузов:", error);
+    return [];
+  }
 }
 
 async function buildRoute(cargos) {
@@ -249,17 +274,16 @@ function clearAll() {
 }
 
 async function addToList() {
-  const formData = {
-    name: document.getElementById("name").value.trim(),
-    weight: parseFloat(document.getElementById("weight").value),
-    length: parseFloat(document.getElementById("length").value),
-    width: parseFloat(document.getElementById("width").value),
-    height: parseFloat(document.getElementById("height").value),
-    quantity: parseInt(document.getElementById("quantity").value),
-    departure: document.getElementById("departure").value.trim(),
-    destination: document.getElementById("destination").value.trim(),
-    tent_type: document.getElementById("tent_type").value,
-  };
+  const cargoType = document.getElementById("cargo_type").value;
+  let formData = {};
+
+  // Общие поля
+  formData.name = document.getElementById("name").value.trim();
+  formData.quantity = parseInt(document.getElementById("quantity").value);
+  formData.departure = document.getElementById("departure").value.trim();
+  formData.destination = document.getElementById("destination").value.trim();
+  formData.tent_type = document.getElementById("tent_type").value;
+  formData.cargo_type = cargoType; // НОВОЕ: добавляем тип груза
 
   // Проверка обязательных полей
   if (!formData.name || !formData.departure || !formData.destination) {
@@ -267,26 +291,59 @@ async function addToList() {
     return;
   }
 
-  // Проверка числовых полей
-  if (
-    [
-      formData.weight,
-      formData.length,
-      formData.width,
-      formData.height,
-      formData.quantity,
-    ].some((v) => isNaN(v) || v <= 0)
-  ) {
-    alert("Числовые поля должны быть заполнены корректно (больше 0)");
-    return;
+  if (cargoType === "dimensions") {
+    // Режим добавления по габаритам
+    formData.weight = parseFloat(document.getElementById("weight").value);
+    formData.length = parseFloat(document.getElementById("length").value);
+    formData.width = parseFloat(document.getElementById("width").value);
+    formData.height = parseFloat(document.getElementById("height").value);
+    formData.volume = null; // Явно указываем null
+
+    // Проверка числовых полей
+    if (
+      [
+        formData.weight,
+        formData.length,
+        formData.width,
+        formData.height,
+        formData.quantity,
+      ].some((v) => isNaN(v) || v <= 0)
+    ) {
+      alert("Числовые поля должны быть заполнены корректно (больше 0)");
+      return;
+    }
+  } else {
+    // Режим добавления по объему
+    formData.volume = parseFloat(document.getElementById("volume").value);
+    formData.weight = parseFloat(
+      document.getElementById("volume_weight").value,
+    );
+    formData.length = null;
+    formData.width = null;
+    formData.height = null;
+
+    // Проверка числовых полей
+    if (
+      [formData.volume, formData.weight, formData.quantity].some(
+        (v) => isNaN(v) || v <= 0,
+      )
+    ) {
+      alert(
+        "Объем, вес и количество должны быть заполнены корректно (больше 0)",
+      );
+      return;
+    }
   }
 
+  console.log("Отправляем данные груза:", formData); // Для отладки
+
   try {
+    const token = localStorage.getItem("token");
     const response = await fetch(`${API_URL}/draft_cargos`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${localStorage.getItem("token")}`,
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(formData),
     });
@@ -296,7 +353,15 @@ async function addToList() {
       throw new Error(error.error || "Ошибка сервера");
     }
 
+    const result = await response.json();
+    console.log("Сервер ответил:", result); // Для отладки
+
+    // Сброс формы
     document.getElementById("cargoForm").reset();
+    // Сбросить тип на "по габаритам"
+    document.getElementById("cargo_type").value = "dimensions";
+    toggleCargoType();
+
     await loadCargos();
   } catch (error) {
     console.error("Ошибка добавления груза:", error);
@@ -319,38 +384,65 @@ function updateCargoList(cargos) {
 
   if (cargos.length === 0) {
     tbody.innerHTML = `
-      <tr>
-        <td colspan="10" style="text-align: center; padding: 20px; color: #666;">
-          Нет добавленных грузов
-        </td>
-      </tr>
-    `;
+            <tr>
+                <td colspan="11" style="text-align: center; padding: 20px; color: #666;">
+                    Нет добавленных грузов
+                </td>
+            </tr>
+        `;
     return;
   }
 
   cargos.forEach((cargo) => {
     const row = document.createElement("tr");
     const tentTypeText = cargo.tent_type === "open" ? "Открытый" : "Закрытый";
-    const volume = (cargo.length * cargo.width * cargo.height).toFixed(2);
+
+    // Рассчитываем объем или используем сохраненный
+    let volumeInfo;
+    if (cargo.cargo_type === "volume" && cargo.volume) {
+      volumeInfo = `${cargo.volume} м³`;
+    } else if (cargo.length && cargo.width && cargo.height) {
+      const volume = cargo.length * cargo.width * cargo.height;
+      volumeInfo = `${volume.toFixed(2)} м³`;
+    } else {
+      volumeInfo = "—";
+    }
+
+    // Отображаем габариты или сообщение
+    let dimensionsInfo;
+    if (
+      cargo.cargo_type === "dimensions" &&
+      cargo.length &&
+      cargo.width &&
+      cargo.height
+    ) {
+      dimensionsInfo = `${cargo.length} × ${cargo.width} × ${cargo.height} м`;
+    } else if (cargo.cargo_type === "volume") {
+      dimensionsInfo = "Добавлен по объему";
+    } else {
+      dimensionsInfo = "—";
+    }
+
     const totalWeight = (cargo.weight * cargo.quantity).toFixed(1);
 
     row.innerHTML = `
-      <td>${cargo.name}</td>
-      <td>${cargo.weight} кг</td>
-      <td>${cargo.length} м</td>
-      <td>${cargo.width} м</td>
-      <td>${cargo.height} м</td>
-      <td>${cargo.quantity}</td>
-      <td>${tentTypeText}</td>
-      <td>${cargo.departure}</td>
-      <td>${cargo.destination}</td>
-      <td>
-        <button onclick="removeCargo(${cargo.id})"
-                style="background: #dc3545; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer;">
-          Удалить
-        </button>
-      </td>
-    `;
+            <td>${cargo.name}</td>
+            <td>${cargo.weight} кг</td>
+            <td>${dimensionsInfo}</td>
+            <td>${volumeInfo}</td>
+            <td>${cargo.quantity}</td>
+            <td>${totalWeight} кг</td>
+            <td>${tentTypeText}</td>
+            <td>${cargo.departure}</td>
+            <td>${cargo.destination}</td>
+            <td>${cargo.cargo_type === "dimensions" ? "По габаритам" : "По объему"}</td>
+            <td>
+                <button onclick="removeCargo(${cargo.id})"
+                        style="background: #dc3545; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer;">
+                    Удалить
+                </button>
+            </td>
+        `;
     tbody.appendChild(row);
   });
 }

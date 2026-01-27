@@ -135,48 +135,86 @@
                         <label>Наименование груза</label>
                         <input type="text" id="name" required />
                     </div>
-                    <div
-                        style="
-                            display: grid;
-                            grid-template-columns: 1fr 1fr 1fr 1fr;
-                            gap: 10px;
-                        "
-                    >
-                        <div class="form-group">
-                            <label>Вес (кг)</label>
-                            <input
-                                type="number"
-                                step="0.1"
-                                id="weight"
-                                required
-                            />
+                    <div class="form-group">
+                        <label>Способ добавления:</label>
+                        <select
+                            id="cargo_type"
+                            onchange="toggleCargoType()"
+                            style="width: 100%; padding: 10px; font-size: 16px"
+                        >
+                            <option value="dimensions">По габаритам</option>
+                            <option value="volume">По объему</option>
+                        </select>
+                    </div>
+
+                    <div id="dimensions_block">
+                        <div
+                            style="
+                                display: grid;
+                                grid-template-columns: 1fr 1fr 1fr 1fr;
+                                gap: 10px;
+                            "
+                        >
+                            <div class="form-group">
+                                <label>Вес (кг)</label>
+                                <input
+                                    type="number"
+                                    step="0.1"
+                                    id="weight"
+                                    required
+                                />
+                            </div>
+                            <div class="form-group">
+                                <label>Длина (м)</label>
+                                <input
+                                    type="number"
+                                    step="0.01"
+                                    id="length"
+                                    required
+                                />
+                            </div>
+                            <div class="form-group">
+                                <label>Ширина (м)</label>
+                                <input
+                                    type="number"
+                                    step="0.01"
+                                    id="width"
+                                    required
+                                />
+                            </div>
+                            <div class="form-group">
+                                <label>Высота (м)</label>
+                                <input
+                                    type="number"
+                                    step="0.01"
+                                    id="height"
+                                    required
+                                />
+                            </div>
                         </div>
-                        <div class="form-group">
-                            <label>Длина (м)</label>
-                            <input
-                                type="number"
-                                step="0.01"
-                                id="length"
-                                required
-                            />
-                        </div>
-                        <div class="form-group">
-                            <label>Ширина (м)</label>
-                            <input
-                                type="number"
-                                step="0.01"
-                                id="width"
-                                required
-                            />
-                        </div>
-                        <div class="form-group">
-                            <label>Высота (м)</label>
-                            <input
-                                type="number"
-                                step="0.01"
-                                id="height"
-                                required
-                            />
+                    </div>
+
+                    <!-- Блок объема (по умолчанию скрытый) -->
+                    <div id="volume_block" style="display: none">
+                        <div
+                            style="
+                                display: grid;
+                                grid-template-columns: 1fr 1fr;
+                                gap: 10px;
+                            "
+                        >
+                            <div class="form-group">
+                                <label>Вес (кг)</label>
+                                <input
+                                    type="number"
+                                    step="0.1"
+                                    id="volume_weight"
+                                />
+                            </div>
+                            <div class="form-group">
+                                <label>Объем (м³)</label>
+                                <input type="number" step="0.01" id="volume" />
+                            </div>
                         </div>
                     </div>
                     <div class="form-group">
@@ -250,14 +288,15 @@
                     <thead>
                         <tr>
                             <th>Наименование</th>
-                            <th>Вес</th>
-                            <th>Длина</th>
-                            <th>Ширина</th>
-                            <th>Высота</th>
+                            <th>Вес (ед.)</th>
+                            <th>Габариты / Тип</th>
+                            <th>Объем</th>
                             <th>Кол-во</th>
+                            <th>Общий вес</th>
                             <th>Тип тента</th>
                             <th>Откуда</th>
                             <th>Куда</th>
+                            <th>Способ</th>
                             <th>Действие</th>
                         </tr>
                     </thead>
