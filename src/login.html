@@ -3,6 +3,10 @@
     <head>
         <link rel="stylesheet" href="./style.css" />
         <title>LogicTrans BY — Вход</title>
+        <script>
+            // Определяем API для login.html
+            const API = "";
+        </script>
     </head>
     <body>
         <h1>Вход в систему</h1>
@@ -70,7 +74,6 @@
             }
         </script>
         <script>
-            const API = "";
             async function login() {
                 const username = document.getElementById("username").value;
                 const password = document.getElementById("password").value;
