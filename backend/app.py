@@ -240,6 +240,40 @@ class User(db.Model, UserMixin):
         }
 
 
+# Добавьте этот класс в app.py после других моделей
+
+class Location(db.Model):
+    __tablename__ = "location"
+    id = db.Column(db.Integer, primary_key=True)
+    company_name = db.Column(db.String(200), nullable=False)  # Название компании
+    address = db.Column(db.String(500), nullable=False)       # Полный адрес
+    is_departure = db.Column(db.Boolean, default=True)        # Может быть пунктом отправки
+    is_destination = db.Column(db.Boolean, default=True)      # Может быть пунктом назначения
+    contact_person = db.Column(db.String(100), nullable=True) # Контактное лицо
+    phone_number = db.Column(db.String(20), nullable=True)    # Телефон
+    email = db.Column(db.String(100), nullable=True)          # Email
+    notes = db.Column(db.Text, nullable=True)                 # Примечания
+    created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=datetime.now(timezone.utc),
+                          onupdate=datetime.now(timezone.utc))
+    created_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "company_name": self.company_name,
+            "address": self.address,
+            "is_departure": self.is_departure,
+            "is_destination": self.is_destination,
+            "contact_person": self.contact_person,
+            "phone_number": self.phone_number,
+            "email": self.email,
+            "notes": self.notes,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "label": f"{self.company_name} - {self.address}"  # Для удобства в автодополнении
+        }
+
+
 def role_required(role):
 
     def wrapper(fn):
@@ -2175,6 +2209,215 @@ def list_order_cargos(order_id):
         return jsonify({"error": "Только администратор"}), 403
     order = Order.query.get_or_404(order_id)
     return jsonify([c.to_dict() for c in order.cargos])
+
+
+@app.route("/locations", methods=["GET"])
+@login_required
+def get_locations():
+    """Получить все адреса с фильтрацией"""
+    search = request.args.get('search', '')
+    limit = request.args.get('limit', 50)
+
+    query = Location.query
+
+    if search:
+        # Ищем по названию компании или адресу
+        query = query.filter(
+            db.or_(
+                Location.company_name.ilike(f'%{search}%'),
+                Location.address.ilike(f'%{search}%')
+            )
+        )
+
+    # Фильтры для типа адреса
+    if request.args.get('departure_only'):
+        query = query.filter(Location.is_departure == True)
+    if request.args.get('destination_only'):
+        query = query.filter(Location.is_destination == True)
+
+    locations = query.order_by(Location.company_name).limit(limit).all()
+    return jsonify([loc.to_dict() for loc in locations])
+
+@app.route("/locations/search", methods=["GET"])
+@login_required
+def search_locations():
+    """Поиск адресов для автодополнения"""
+    query = request.args.get('q', '')
+    type_filter = request.args.get('type')  # 'departure' или 'destination'
+
+    if not query or len(query) < 2:
+        return jsonify([])
+
+    db_query = Location.query.filter(
+        db.or_(
+            Location.company_name.ilike(f'%{query}%'),
+            Location.address.ilike(f'%{query}%')
+        )
+    )
+
+    # Применяем фильтр по типу если указан
+    if type_filter == 'departure':
+        db_query = db_query.filter(Location.is_departure == True)
+    elif type_filter == 'destination':
+        db_query = db_query.filter(Location.is_destination == True)
+
+    locations = db_query.limit(20).all()
+
+    # Форматируем для автодополнения
+    results = []
+    for loc in locations:
+        results.append({
+            "id": loc.id,
+            "label": f"{loc.company_name} - {loc.address}",
+            "company_name": loc.company_name,
+            "address": loc.address,
+            "value": loc.address,  # Для вставки в поле ввода
+            "contact_person": loc.contact_person,
+            "phone_number": loc.phone_number
+        })
+
+    return jsonify(results)
+
+@app.route("/locations", methods=["POST"])
+@login_required
+@role_required("admin")
+def add_location():
+    """Добавить новый адрес"""
+    data = request.get_json()
+
+    if not data.get('address'):
+        return jsonify({"error": "Адрес обязателен"}), 400
+
+    location = Location(
+        company_name=data.get('company_name', ''),
+        address=data['address'],
+        is_departure=data.get('is_departure', True),
+        is_destination=data.get('is_destination', True),
+        contact_person=data.get('contact_person'),
+        phone_number=data.get('phone_number'),
+        email=data.get('email'),
+        notes=data.get('notes'),
+        created_by=current_user.id
+    )
+
+    db.session.add(location)
+    db.session.commit()
+
+    return jsonify(location.to_dict()), 201
+
+@app.route("/locations/<int:location_id>", methods=["PUT"])
+@login_required
+@role_required("admin")
+def update_location(location_id):
+    """Обновить адрес"""
+    location = Location.query.get_or_404(location_id)
+    data = request.get_json()
+
+    if 'company_name' in data:
+        location.company_name = data['company_name']
+    if 'address' in data:
+        location.address = data['address']
+    if 'is_departure' in data:
+        location.is_departure = data['is_departure']
+    if 'is_destination' in data:
+        location.is_destination = data['is_destination']
+    if 'contact_person' in data:
+        location.contact_person = data['contact_person']
+    if 'phone_number' in data:
+        location.phone_number = data['phone_number']
+    if 'email' in data:
+        location.email = data['email']
+    if 'notes' in data:
+        location.notes = data['notes']
+
+    db.session.commit()
+    return jsonify(location.to_dict())
+
+@app.route("/locations/<int:location_id>", methods=["DELETE"])
+@login_required
+@role_required("admin")
+def delete_location(location_id):
+    """Удалить адрес"""
+    location = Location.query.get_or_404(location_id)
+
+    # Проверяем, используется ли адрес в заявках
+    # (Можно добавить проверку позже)
+
+    db.session.delete(location)
+    db.session.commit()
+
+    return jsonify({"message": "Адрес удален"}), 200
+
+@app.route("/locations/bulk_import", methods=["POST"])
+@login_required
+@role_required("admin")
+def bulk_import_locations():
+    """Массовый импорт адресов из Excel/CSV"""
+    if 'file' not in request.files:
+        return jsonify({"error": "Нет файла"}), 400
+
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "Не выбран файл"}), 400
+
+    # Проверяем расширение файла
+    if not (file.filename.endswith('.csv') or file.filename.endswith('.xlsx')):
+        return jsonify({"error": "Поддерживаются только CSV и Excel файлы"}), 400
+
+    try:
+        import pandas as pd
+        from io import BytesIO
+
+        # Читаем файл в зависимости от формата
+        if file.filename.endswith('.csv'):
+            df = pd.read_csv(BytesIO(file.read()))
+        else:
+            df = pd.read_excel(BytesIO(file.read()))
+
+        # Проверяем необходимые колонки
+        required_columns = ['address']
+        for col in required_columns:
+            if col not in df.columns:
+                return jsonify({"error": f"Отсутствует колонка: {col}"}), 400
+
+        imported_count = 0
+        skipped_count = 0
+
+        for _, row in df.iterrows():
+            # Проверяем, существует ли уже такой адрес
+            existing = Location.query.filter_by(address=row['address']).first()
+            if existing:
+                skipped_count += 1
+                continue
+
+            location = Location(
+                company_name=row.get('company_name', ''),
+                address=row['address'],
+                is_departure=bool(row.get('is_departure', True)),
+                is_destination=bool(row.get('is_destination', True)),
+                contact_person=row.get('contact_person'),
+                phone_number=row.get('phone_number'),
+                email=row.get('email'),
+                notes=row.get('notes'),
+                created_by=current_user.id
+            )
+
+            db.session.add(location)
+            imported_count += 1
+
+        db.session.commit()
+
+        return jsonify({
+            "message": "Импорт завершен",
+            "imported": imported_count,
+            "skipped": skipped_count
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Ошибка импорта: {str(e)}"}), 500
+
+
 
 @app.route("/orders/<int:order_id>/cargos", methods=["POST"])
 @login_required

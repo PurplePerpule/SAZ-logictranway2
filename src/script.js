@@ -2,6 +2,9 @@ ymaps.ready(init);
 
 var myMap;
 
+let addressSearchTimeout = null;
+let activeDropdown = null;
+
 // Проверка авторизации при загрузке страницы
 document.addEventListener("DOMContentLoaded", function () {
   const token = localStorage.getItem("token");
@@ -368,6 +371,157 @@ async function addToList() {
     alert("Ошибка: " + error.message);
   }
 }
+
+async function searchAddress(inputElement) {
+  const query = inputElement.value.trim();
+  const type = inputElement.dataset.type; // 'departure' или 'destination'
+  const dropdownId = `${type}Dropdown`;
+  const dropdown = document.getElementById(dropdownId);
+
+  if (!query || query.length < 2) {
+    dropdown.style.display = "none";
+    return;
+  }
+
+  // Очищаем предыдущий таймер
+  if (addressSearchTimeout) {
+    clearTimeout(addressSearchTimeout);
+  }
+
+  // Устанавливаем новый таймер для дебаунса
+  addressSearchTimeout = setTimeout(async () => {
+    try {
+      const token = localStorage.getItem("token");
+      const response = await fetch(
+        `${API_URL}/locations/search?q=${encodeURIComponent(query)}&type=${type}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        },
+      );
+
+      if (response.ok) {
+        const results = await response.json();
+        showAddressDropdown(dropdown, results, inputElement);
+      }
+    } catch (error) {
+      console.error("Ошибка поиска адресов:", error);
+    }
+  }, 300);
+}
+
+// Показать выпадающий список адресов
+function showAddressDropdown(dropdown, results, inputElement) {
+  if (!results.length) {
+    dropdown.style.display = "none";
+    return;
+  }
+
+  dropdown.innerHTML = "";
+
+  results.forEach((result) => {
+    const item = document.createElement("div");
+    item.className = "autocomplete-item";
+    item.innerHTML = `
+            <div class="company">${result.company_name || "Адрес"}</div>
+            <div class="address">${result.address}</div>
+            ${result.contact_person ? `<div class="contact">${result.contact_person}</div>` : ""}
+        `;
+
+    item.onclick = () => {
+      inputElement.value = result.address;
+      dropdown.style.display = "none";
+
+      // Можно дополнительно заполнить контактные данные
+      if (
+        result.contact_person &&
+        !document.getElementById("contact_person").value
+      ) {
+        document.getElementById("contact_person").value = result.contact_person;
+      }
+      if (
+        result.phone_number &&
+        !document.getElementById("contact_phone").value
+      ) {
+        document.getElementById("contact_phone").value = result.phone_number;
+      }
+    };
+
+    dropdown.appendChild(item);
+  });
+
+  dropdown.style.display = "block";
+  activeDropdown = dropdown;
+}
+
+// Закрытие выпадающих списков при клике вне
+document.addEventListener("click", function (event) {
+  if (activeDropdown && !activeDropdown.contains(event.target)) {
+    activeDropdown.style.display = "none";
+    activeDropdown = null;
+  }
+});
+
+// Навигация по выпадающему списку с клавиатуры
+document.addEventListener("keydown", function (event) {
+  const activeInput = document.activeElement;
+  if (!activeInput || !["departure", "destination"].includes(activeInput.id)) {
+    return;
+  }
+
+  const dropdownId = `${activeInput.id}Dropdown`;
+  const dropdown = document.getElementById(dropdownId);
+
+  if (!dropdown || dropdown.style.display !== "block") {
+    return;
+  }
+
+  const items = dropdown.querySelectorAll(".autocomplete-item");
+  if (!items.length) return;
+
+  let currentIndex = -1;
+  items.forEach((item, index) => {
+    if (item.classList.contains("selected")) {
+      currentIndex = index;
+    }
+  });
+
+  switch (event.key) {
+    case "ArrowDown":
+      event.preventDefault();
+      if (currentIndex < items.length - 1) {
+        if (currentIndex >= 0) {
+          items[currentIndex].classList.remove("selected");
+        }
+        currentIndex++;
+        items[currentIndex].classList.add("selected");
+      }
+      break;
+
+    case "ArrowUp":
+      event.preventDefault();
+      if (currentIndex > 0) {
+        if (currentIndex >= 0) {
+          items[currentIndex].classList.remove("selected");
+        }
+        currentIndex--;
+        items[currentIndex].classList.add("selected");
+      }
+      break;
+
+    case "Enter":
+      event.preventDefault();
+      if (currentIndex >= 0) {
+        items[currentIndex].click();
+      }
+      break;
+
+    case "Escape":
+      dropdown.style.display = "none";
+      break;
+  }
+});
 
 function updateCargoCount(count) {
   const countElement = document.getElementById("cargoCount");

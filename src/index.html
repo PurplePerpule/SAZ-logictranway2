@@ -9,77 +9,31 @@
             src="https://api-maps.yandex.ru/2.1/?apikey=28cae7bd-c3b7-4145-94bb-923d2ab7c54e&lang=ru_RU"
             type="text/javascript"
         ></script>
-        <style>
-            .btn-dispatcher {
-                background: #28a745 !important;
-                color: white !important;
-                font-weight: bold;
-                padding: 14px 24px !important;
-                font-size: 16px;
-                margin-left: 10px;
-            }
-
-            .date-section {
-                background: #e8f4fd;
-                padding: 20px;
-                border-radius: 10px;
-                margin: 20px 0;
-                border: 2px solid #2196f3;
-            }
-
-            .date-section h2 {
-                color: #2196f3;
-                margin-top: 0;
-            }
-        </style>
     </head>
     <body>
-        <div style="text-align: right; margin: 10px 20px">
-            <button
-                onclick="logout()"
-                style="
-                    background: #ff4444;
-                    color: white;
-                    border: none;
-                    padding: 8px 16px;
-                    border-radius: 4px;
-                    cursor: pointer;
-                "
-            >
-                Выйти
-            </button>
+        <div>
+            <button onclick="logout()" class="logout-container">Выйти</button>
         </div>
         <div class="container">
             <!-- БЛОК ЗАЯВИТЕЛЯ (всегда сверху, не очищается) -->
-            <div
-                class="applicant-section"
-                style="
-                    background: #f8f9fa;
-                    padding: 20px;
-                    border-radius: 10px;
-                    margin-bottom: 20px;
-                    border: 2px solid #007bff;
-                "
-            >
-                <h2 style="color: #007bff; margin-top: 0">Данные заявителя</h2>
+            <div class="applicant-section">
+                <h2>Данные заявителя</h2>
                 <div class="form-group">
-                    <label>Заявитель <span style="color: red">*</span></label>
+                    <label>Заявитель <span>*</span></label>
                     <input
                         type="text"
                         id="applicant"
                         placeholder="Иванов И.И."
                         required
-                        style="width: 100%; padding: 10px; font-size: 16px"
                     />
                 </div>
                 <div class="form-group">
-                    <label>Отдел <span style="color: red">*</span></label>
+                    <label>Отдел <span>*</span></label>
                     <input
                         type="text"
                         id="department"
                         placeholder="ОГТ / ОМТС / Цех №5"
                         required
-                        style="width: 100%; padding: 10px; font-size: 16px"
                     />
                 </div>
                 <div class="form-group">
@@ -88,7 +42,6 @@
                         type="text"
                         id="phone_number"
                         placeholder="+375 (29) 123-45-67"
-                        style="width: 100%; padding: 10px; font-size: 16px"
                     />
                 </div>
             </div>
@@ -97,28 +50,9 @@
             <div class="date-section">
                 <h2>Дата отправления</h2>
                 <div class="form-group" style="max-width: 300px">
-                    <label
-                        style="
-                            color: #d32f2f;
-                            font-weight: bold;
-                            display: block;
-                            margin-bottom: 8px;
-                        "
-                    >
-                        Желаемая дата отправления:
-                    </label>
-                    <input
-                        type="date"
-                        id="preferred_date"
-                        style="
-                            width: 100%;
-                            padding: 12px;
-                            font-size: 16px;
-                            border: 2px solid #2196f3;
-                            border-radius: 6px;
-                        "
-                    />
-                    <div style="margin-top: 10px; font-size: 14px; color: #666">
+                    <label> Желаемая дата отправления: </label>
+                    <input type="date" id="preferred_date" />
+                    <div>
                         <em
                             >Эта дата будет применена ко всем грузам в
                             заявке</em
@@ -137,24 +71,14 @@
                     </div>
                     <div class="form-group">
                         <label>Способ добавления:</label>
-                        <select
-                            id="cargo_type"
-                            onchange="toggleCargoType()"
-                            style="width: 100%; padding: 10px; font-size: 16px"
-                        >
+                        <select id="cargo_type" onchange="toggleCargoType()">
                             <option value="dimensions">По габаритам</option>
                             <option value="volume">По объему</option>
                         </select>
                     </div>
 
                     <div id="dimensions_block">
-                        <div
-                            style="
-                                display: grid;
-                                grid-template-columns: 1fr 1fr 1fr 1fr;
-                                gap: 10px;
-                            "
-                        >
+                        <div>
                             <div class="form-group">
                                 <label>Вес (кг)</label>
                                 <input
@@ -196,13 +120,7 @@
 
                     <!-- Блок объема (по умолчанию скрытый) -->
                     <div id="volume_block" style="display: none">
-                        <div
-                            style="
-                                display: grid;
-                                grid-template-columns: 1fr 1fr;
-                                gap: 10px;
-                            "
-                        >
+                        <div>
                             <div class="form-group">
                                 <label>Вес (кг)</label>
                                 <input
@@ -228,61 +146,54 @@
                         />
                     </div>
 
-                    <div
-                        style="
-                            display: grid;
-                            grid-template-columns: 1fr 1fr;
-                            gap: 10px;
-                        "
-                    >
-                        <div class="form-group">
+                    <div>
+                        <div class="form-group autocomplete-container">
                             <label>Откуда забрать</label>
                             <input
                                 type="text"
                                 id="departure"
                                 placeholder="г. Сморгонь, ул. Советская 10"
                                 required
+                                data-type="departure"
+                                oninput="searchAddress(this)"
                             />
+                            <div
+                                class="autocomplete-dropdown"
+                                id="departureDropdown"
+                            ></div>
                         </div>
-                        <div class="form-group">
+
+                        <div class="form-group autocomplete-container">
                             <label>Куда доставить</label>
                             <input
                                 type="text"
                                 id="destination"
                                 placeholder="г. Минск, пр. Победителей 100"
                                 required
+                                data-type="destination"
+                                oninput="searchAddress(this)"
                             />
+                            <div
+                                class="autocomplete-dropdown"
+                                id="destinationDropdown"
+                            ></div>
                         </div>
                     </div>
                     <div class="form-group">
                         <label>Тип тента</label>
-                        <select
-                            id="tent_type"
-                            style="width: 100%; padding: 10px; font-size: 16px"
-                        >
+                        <select id="tent_type">
                             <option value="closed">Закрытый (тент)</option>
                             <option value="open">Открытый (бортовой)</option>
                         </select>
                     </div>
-                    <button
-                        type="button"
-                        onclick="addToList()"
-                        style="
-                            background: #007bff;
-                            color: white;
-                            padding: 12px 24px;
-                            border: none;
-                            border-radius: 6px;
-                            font-size: 16px;
-                        "
-                    >
+                    <button type="button" onclick="addToList()">
                         Добавить груз в заявку
                     </button>
                 </form>
             </div>
 
             <!-- СПИСОК ГРУЗОВ -->
-            <div class="list-section" style="margin-top: 30px">
+            <div class="list-section">
                 <h2>Грузы в заявке (<span id="cargoCount">0</span>)</h2>
                 <table id="cargoTable">
                     <thead>
@@ -305,35 +216,18 @@
             </div>
 
             <!-- КНОПКА ОТПРАВКИ -->
-            <div style="text-align: center; margin: 30px 0">
+            <div>
                 <button
                     onclick="sendOrderToDispatcher()"
                     class="btn-dispatcher"
-                    style="font-size: 20px; padding: 16px 40px"
                 >
                     ОТПРАВИТЬ ЗАЯВКУ ДИСПЕТЧЕРУ
                 </button>
-                <button
-                    onclick="clearAll()"
-                    style="
-                        background: #6c757d;
-                        color: white;
-                        padding: 12px 24px;
-                        border: none;
-                        border-radius: 6px;
-                        font-size: 16px;
-                        margin-left: 10px;
-                    "
-                >
-                    Очистить все
-                </button>
+                <button onclick="clearAll()">Очистить все</button>
             </div>
 
             <div class="map-section">
-                <div
-                    id="map"
-                    style="height: 500px; border-radius: 10px; overflow: hidden"
-                ></div>
+                <div id="map"></div>
             </div>
         </div>
 

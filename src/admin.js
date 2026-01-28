@@ -7,6 +7,8 @@ let historyPageSize = 20;
 let totalHistoryPages = 1;
 let currentHistoryFilters = {};
 let myMap = null;
+let currentLocations = [];
+let locationSearchTimeout = null;
 
 function showLoader() {
   const loader = document.getElementById("loader");
@@ -1703,6 +1705,9 @@ function showTab(tabId) {
     case "users":
       loadUsers();
       break;
+    case "locations":
+      showLocationsTab();
+      break;
   }
 }
 
@@ -1775,6 +1780,252 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   }, 10000);
 });
+
+// Показать вкладку адресов
+function showLocationsTab() {
+  loadLocations();
+}
+
+// Загрузка адресов
+async function loadLocations() {
+  try {
+    const search = document.getElementById("locationSearch")?.value || "";
+    const type = document.getElementById("locationTypeFilter")?.value || "";
+
+    let url = `${API}/locations?search=${encodeURIComponent(search)}`;
+    if (type === "departure") url += "&departure_only=true";
+    if (type === "destination") url += "&destination_only=true";
+
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem("token")}`,
+      },
+    });
+
+    currentLocations = await response.json();
+    renderLocationsTable(currentLocations);
+  } catch (error) {
+    console.error("Ошибка загрузки адресов:", error);
+    alert("Не удалось загрузить адреса");
+  }
+}
+
+// Поиск с задержкой
+function searchLocations() {
+  if (locationSearchTimeout) {
+    clearTimeout(locationSearchTimeout);
+  }
+  locationSearchTimeout = setTimeout(loadLocations, 500);
+}
+
+function resetLocationSearch() {
+  document.getElementById("locationSearch").value = "";
+  document.getElementById("locationTypeFilter").value = "";
+  loadLocations();
+}
+
+// Рендер таблицы адресов
+function renderLocationsTable(locations) {
+  const tbody = document.querySelector("#locationsTable tbody");
+  if (!tbody) return;
+
+  tbody.innerHTML = "";
+
+  locations.forEach((location) => {
+    const tr = document.createElement("tr");
+
+    // Определяем типы
+    let types = [];
+    if (location.is_departure) types.push("Отправление");
+    if (location.is_destination) types.push("Назначение");
+
+    tr.innerHTML = `
+            <td>${location.id}</td>
+            <td>${location.company_name || "-"}</td>
+            <td>${location.address}</td>
+            <td>${types.join(", ")}</td>
+            <td>${location.contact_person || "-"}</td>
+            <td>${location.phone_number || "-"}</td>
+            <td>
+                <button class="btn" onclick="editLocation(${location.id})">Изменить</button>
+                <button class="btn" style="background:#d32f2f" onclick="deleteLocation(${location.id})">Удалить</button>
+            </td>
+        `;
+    tbody.appendChild(tr);
+  });
+}
+
+// Открыть модальное окно добавления
+function openAddLocationModal() {
+  document.getElementById("locationModalTitle").textContent = "Добавить адрес";
+  document.getElementById("editLocationId").value = "";
+  document.getElementById("locationCompany").value = "";
+  document.getElementById("locationAddress").value = "";
+  document.getElementById("locationIsDeparture").checked = true;
+  document.getElementById("locationIsDestination").checked = true;
+  document.getElementById("locationContact").value = "";
+  document.getElementById("locationPhone").value = "";
+  document.getElementById("locationEmail").value = "";
+  document.getElementById("locationNotes").value = "";
+  document.getElementById("saveLocationBtn").textContent = "Сохранить";
+
+  document.getElementById("locationModal").style.display = "block";
+}
+
+// Закрыть модальное окно
+function closeLocationModal() {
+  document.getElementById("locationModal").style.display = "none";
+}
+
+// Сохранить адрес
+async function saveLocation() {
+  const id = document.getElementById("editLocationId").value;
+  const isEdit = !!id;
+
+  const data = {
+    company_name: document.getElementById("locationCompany").value.trim(),
+    address: document.getElementById("locationAddress").value.trim(),
+    is_departure: document.getElementById("locationIsDeparture").checked,
+    is_destination: document.getElementById("locationIsDestination").checked,
+    contact_person:
+      document.getElementById("locationContact").value.trim() || null,
+    phone_number: document.getElementById("locationPhone").value.trim() || null,
+    email: document.getElementById("locationEmail").value.trim() || null,
+    notes: document.getElementById("locationNotes").value.trim() || null,
+  };
+
+  if (!data.address) {
+    alert("Адрес обязателен для заполнения");
+    return;
+  }
+
+  try {
+    const url = isEdit ? `${API}/locations/${id}` : `${API}/locations`;
+    const method = isEdit ? "PUT" : "POST";
+
+    const response = await fetch(url, {
+      method: method,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${localStorage.getItem("token")}`,
+      },
+      body: JSON.stringify(data),
+    });
+
+    if (response.ok) {
+      alert(`Адрес ${isEdit ? "обновлен" : "добавлен"}`);
+      closeLocationModal();
+      loadLocations();
+    } else {
+      const error = await response.json();
+      alert(error.error || "Ошибка сохранения");
+    }
+  } catch (error) {
+    console.error("Ошибка сохранения адреса:", error);
+    alert("Ошибка соединения с сервером");
+  }
+}
+
+// Редактировать адрес
+async function editLocation(id) {
+  const location = currentLocations.find((loc) => loc.id === id);
+  if (!location) return;
+
+  document.getElementById("locationModalTitle").textContent =
+    "Редактировать адрес";
+  document.getElementById("editLocationId").value = location.id;
+  document.getElementById("locationCompany").value =
+    location.company_name || "";
+  document.getElementById("locationAddress").value = location.address;
+  document.getElementById("locationIsDeparture").checked =
+    location.is_departure;
+  document.getElementById("locationIsDestination").checked =
+    location.is_destination;
+  document.getElementById("locationContact").value =
+    location.contact_person || "";
+  document.getElementById("locationPhone").value = location.phone_number || "";
+  document.getElementById("locationEmail").value = location.email || "";
+  document.getElementById("locationNotes").value = location.notes || "";
+  document.getElementById("saveLocationBtn").textContent = "Обновить";
+
+  document.getElementById("locationModal").style.display = "block";
+}
+
+// Удалить адрес
+async function deleteLocation(id) {
+  if (!confirm("Удалить этот адрес?")) return;
+
+  try {
+    const response = await fetch(`${API}/locations/${id}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem("token")}`,
+      },
+    });
+
+    if (response.ok) {
+      alert("Адрес удален");
+      loadLocations();
+    } else {
+      const error = await response.json();
+      alert(error.error || "Ошибка удаления");
+    }
+  } catch (error) {
+    console.error("Ошибка удаления адреса:", error);
+    alert("Ошибка соединения с сервером");
+  }
+}
+
+// Импорт из файла
+function openBulkImportModal() {
+  document.getElementById("importFile").value = "";
+  document.getElementById("importModal").style.display = "block";
+}
+
+function closeImportModal() {
+  document.getElementById("importModal").style.display = "none";
+}
+
+async function uploadImportFile() {
+  const fileInput = document.getElementById("importFile");
+  if (!fileInput.files.length) {
+    alert("Выберите файл");
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append("file", fileInput.files[0]);
+
+  try {
+    const response = await fetch(`${API}/locations/bulk_import`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem("token")}`,
+      },
+      body: formData,
+    });
+
+    const result = await response.json();
+
+    if (response.ok) {
+      alert(
+        `Импорт завершен. Добавлено: ${result.imported}, Пропущено: ${result.skipped}`,
+      );
+      closeImportModal();
+      loadLocations();
+    } else {
+      alert(result.error || "Ошибка импорта");
+    }
+  } catch (error) {
+    console.error("Ошибка импорта:", error);
+    alert("Ошибка соединения с сервером");
+  }
+}
+
+// Экспорт в Excel
+async function exportLocations() {
+  window.open(`${API}/export_locations`, "_blank");
+}
 
 async function logout() {
   try {

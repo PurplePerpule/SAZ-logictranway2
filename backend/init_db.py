@@ -1,4 +1,4 @@
-from app import Vehicle, User, app, db
+from app import Vehicle, User, Location, app, db
 from werkzeug.security import generate_password_hash
 
 
@@ -232,6 +232,55 @@ sample_users = [
     }
 ]
 
+sample_locations = [
+    {
+        "company_name": "Сморгонский агрегатный завод",
+        "address": "г. Сморгонь, ул. Советская, 150",
+        "is_departure": True,
+        "is_destination": False,
+        "contact_person": "Отдел логистики",
+        "phone_number": "+375 1592 12345"
+    },
+    {
+        "company_name": "Минский завод строительных материалов",
+        "address": "г. Минск, ул. Строителей, 25",
+        "is_departure": False,
+        "is_destination": True
+    },
+    {
+        "company_name": "Витебский машиностроительный завод",
+        "address": "г. Витебск, пр-т Московский, 150",
+        "is_departure": False,
+        "is_destination": True
+    },
+    {
+        "company_name": "Гродненский металлопрокат",
+        "address": "г. Гродно, ул. Промышленная, 15",
+        "is_departure": True,
+        "is_destination": True
+    },
+    {
+        "company_name": "Брестский порт",
+        "address": "г. Брест, ул. Портовая, 1",
+        "is_departure": True,
+        "is_destination": True
+    },
+    {
+        "company_name": "Гомельский химический завод",
+        "address": "г. Гомель, ул. Химиков, 30",
+        "is_departure": False,
+        "is_destination": True
+    },
+    {
+        "company_name": "Могилевский автозавод",
+        "address": "г. Могилев, ул. Автозаводская, 10",
+        "is_departure": True,
+        "is_destination": True
+    }
+]
+
+
+
 with app.app_context():
     # Создаем все таблицы
     db.create_all()
@@ -257,6 +306,12 @@ with app.app_context():
             db.session.add(new_vehicle)
         print("Sample vehicles added to the database.")
 
+    # Добавляем адреса
+    if Location.query.count() == 0:
+        for loc_data in sample_locations:
+            location = Location(**loc_data)
+            db.session.add(location)
+        print("Sample locations added to the database.")
     # Сохраняем все изменения
     db.session.commit()
     print("Database initialization complete!")
