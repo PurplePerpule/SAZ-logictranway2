@@ -19,7 +19,17 @@ import os
 
 
 app = Flask(__name__)
-CORS(app)
+CORS(app,
+     supports_credentials=True,
+     origins=[
+         "http://127.0.0.1:5000",
+         "http://localhost:5000",
+         "http://192.168.1.55:5000",
+         "http://192.168.15.189:5000",
+         "http://0.0.0.0:5000"
+     ],
+     allow_headers=["Content-Type", "Authorization"],
+     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 
 
 app.config["SECRET_KEY"] = "c639183901c409352be3d01c521c7694"
@@ -29,12 +39,16 @@ login_manager.login_view = "login"
 
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    try:
+        return User.query.get(int(user_id))
+    except:
+        return None
 
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=1)  # Сессия на 1 час
-app.config["SESSION_COOKIE_SECURE"] = True  # Только для HTTPS
+app.config["SESSION_COOKIE_SECURE"] = False # Только для HTTPS
 app.config["SESSION_COOKIE_HTTPONLY"] = True
-app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SAMESITE"] = "None"
+app.config["SESSION_COOKIE_DOMAIN"] = None  # Разрешить все домены
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///" + os.path.join(basedir, "database.db")
@@ -318,31 +332,62 @@ def token_required(f):
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "GET":
-        # Если пользователь уже авторизован, перенаправляем в зависимости от роли
         if current_user.is_authenticated:
             if current_user.role == "admin":
                 return redirect("/admin.html")
             else:
                 return redirect("/index.html")
-        # Если не авторизован, показываем страницу входа
         return send_file(os.path.join(_static_root, "login.html"))
 
-    # Если POST запрос - обрабатываем логин
     data = request.get_json() or {}
+
+    # Проверяем источник запроса для отладки
+    print(f"Login attempt from: {request.remote_addr}, Origin: {request.headers.get('Origin')}")
 
     user = User.query.filter_by(username=data.get("username")).first()
 
     if not user or not check_password_hash(user.password, data.get("password", "")):
         return jsonify({"error": "Неверный логин или пароль"}), 401
 
-    login_user(user)
-    return jsonify({"token": "ok", "role": user.role})
+    login_user(user, remember=True)
+
+    # Явно устанавливаем сессию как постоянную
+    session.permanent = True
+
+    response = jsonify({
+        "token": "ok",
+        "role": user.role,
+        "user_id": user.id
+    })
+
+    return response
 
 @app.route("/logout", methods=["POST"])
 @login_required
 def logout():
     logout_user()
     return jsonify({"message": "Вышли из системы"})
+
+
+@app.route("/test_cors", methods=["GET", "OPTIONS"])
+def test_cors():
+    """Тестовый эндпоинт для проверки CORS"""
+    if request.method == "OPTIONS":
+        response = make_response()
+        response.headers.add("Access-Control-Allow-Origin", request.headers.get("Origin", "*"))
+        response.headers.add("Access-Control-Allow-Credentials", "true")
+        response.headers.add("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        response.headers.add("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        return response
+
+    return jsonify({
+        "status": "ok",
+        "remote_addr": request.remote_addr,
+        "origin": request.headers.get("Origin"),
+        "cookies": request.cookies,
+        "session": dict(session)
+    })
+
 
 # Регистрация нового пользователя (только для админа)
 @app.route("/register", methods=["POST"])
@@ -2548,12 +2593,49 @@ def favicon_ico():
 
 @app.after_request
 def after_request(response):
+    """Добавляем CORS заголовки ко всем ответам"""
+    origin = request.headers.get('Origin', '*')
 
+    # Разрешаем все локальные адреса
+    allowed_origins = [
+        'http://127.0.0.1:5000',
+        'http://localhost:5000',
+        'http://192.168.1.55:5000',
+        'http://192.168.15.189:5000',
+    ]
 
-    if 'Cache-Control' not in response.headers:
-        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, private'
+    if origin in allowed_origins or origin.startswith('http://192.168.'):
+        response.headers.add('Access-Control-Allow-Origin', origin)
+
+    response.headers.add('Access-Control-Allow-Credentials', 'true')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
 
     return response
+
+@app.route("/debug")
+def debug():
+    """Страница для отладки"""
+    return f"""
+    <html>
+    <body>
+        <h1>Debug Info</h1>
+        <p>Remote Addr: {request.remote_addr}</p>
+        <p>Origin: {request.headers.get('Origin')}</p>
+        <p>Cookies: {request.cookies}</p>
+        <p>Session: {dict(session)}</p>
+        <button onclick="testCors()">Test CORS</button>
+        <script>
+            async function testCors() {{
+                const res = await fetch('/test_cors', {{credentials: 'include'}});
+                const data = await res.json();
+                alert(JSON.stringify(data, null, 2));
+            }}
+        </script>
+    </body>
+    </html>
+    """
+
 
 def check_order_deadlines():
     """Проверяет заявки, у которых подходит срок отправления по ДАТЕ"""
