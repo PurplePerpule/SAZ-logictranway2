@@ -164,20 +164,13 @@ async function sendOrderToDispatcher() {
     return;
   }
 
-  if (
-    !confirm(
-      `Отправить заявку диспетчеру?\n\nДата отправления: ${formatDate(preferred_date)}\nГрузов: ${cargos.length}\nЗаявитель: ${applicant}\nОтдел: ${department}`,
-    )
-  )
-    return;
-
   try {
     const payload = {
       applicant,
       department,
       phone_number: phone_number || null,
       tent_type,
-      preferred_departure_date: preferred_date, // Обязательно отправляем дату
+      preferred_departure_date: preferred_date,
     };
 
     console.log("Отправка заявки:", payload);
@@ -201,8 +194,11 @@ async function sendOrderToDispatcher() {
       `Заявка #${order.id} успешно отправлена диспетчеру!\nДата: ${formatDate(preferred_date)}`,
     );
 
-    // Сбрасываем только форму грузов и список, НО НЕ ДАТУ!
+    // Сбрасываем только форму грузов и список
     document.getElementById("cargoForm").reset();
+    document.getElementById("cargo_type").value = "dimensions";
+    toggleCargoType();
+
     myMap.geoObjects.removeAll();
     updateCargoList([]);
     updateCargoCount(0);

@@ -1233,6 +1233,23 @@ def print_route_sheet(order_id):
     if not order.vehicle:
         return jsonify({"error": "Нет назначенной машины"}), 400
 
+    # Получаем все адреса из грузов
+    all_addresses = []
+    for cargo in order.cargos:
+        all_addresses.append(cargo.departure)
+        all_addresses.append(cargo.destination)
+
+    # Удаляем дубликаты
+    all_addresses = list(set(all_addresses))
+
+    # Получаем соответствующие записи из Location
+    locations = Location.query.filter(Location.address.in_(all_addresses)).all()
+
+    # Создаем словарь для быстрого доступа: адрес -> company_name
+    address_to_company = {}
+    for loc in locations:
+        address_to_company[loc.address] = loc.company_name
+
     # Формируем HTML для маршрутного листа
     created_date = order.created_at.strftime("%d.%m.%Y") if order.created_at else datetime.now().strftime("%d.%m.%Y")
     today_date = datetime.now().strftime("%d.%m.%Y")
@@ -1243,10 +1260,13 @@ def print_route_sheet(order_id):
 
     for cargo in order.cargos:
         for i in range(cargo.quantity):  # Каждую единицу груза отдельной строкой
+            # Получаем название компании для destination
+            company_name = address_to_company.get(cargo.destination, cargo.destination)
+
             cargo_table += f"""
             <tr>
                 <td class="col-no">{cargo_counter}</td>
-                <td class="col-request" contenteditable="true" class="editable">{cargo.name} → {cargo.destination}</td>
+                <td class="col-request" contenteditable="true" class="editable">{company_name}</td>
                 <td class="col-address" contenteditable="true" class="editable">{cargo.destination}</td>
                 <td class="col-time"><input type="time" class="editable" value="09:00"></td>
                 <td class="col-work"><input type="text" class="editable" value="1 ч"></td>
@@ -1324,10 +1344,11 @@ def print_route_sheet(order_id):
             margin: 25px 0;
             font-size: 14px;
             table-layout: fixed;
+            border: 1px solid #000;  /* Восстановлено */
         }}
 
         th, td {{
-            border: 1px solid #000;
+            border: 1px solid #000;  /* Восстановлено */
             padding: 10px 8px;
             text-align: center;
             vertical-align: middle;
@@ -1464,7 +1485,7 @@ def print_route_sheet(order_id):
                 padding: 0;
                 width: 100%;
                 font-family: 'Times New Roman', serif !important;
-                font-size: 12pt !important;  /* Увеличенный шрифт */
+                font-size: 12pt !important;
                 line-height: 1.3 !important;
                 background: white !important;
                 -webkit-print-color-adjust: exact !important;
@@ -1509,13 +1530,14 @@ def print_route_sheet(order_id):
                 border-collapse: collapse !important;
                 border-spacing: 0 !important;
                 margin: 15pt 0 !important;
-                font-size: 11pt !important;  /* Увеличенный шрифт таблицы */
+                font-size: 11pt !important;
                 page-break-inside: auto !important;
+                border: 1px solid black !important;  /* Восстановлено */
             }}
 
             th, td {{
-                border: 1px solid black !important;
-                padding: 8pt 6pt !important;  /* Увеличенные отступы */
+                border: 1px solid black !important;  /* Восстановлено */
+                padding: 8pt 6pt !important;
                 font-size: 11pt !important;
                 line-height: 1.3 !important;
                 overflow: visible !important;
@@ -1523,13 +1545,14 @@ def print_route_sheet(order_id):
                 white-space: normal !important;
                 word-wrap: break-word !important;
                 height: auto !important;
-                min-height: 25pt !important;  /* Увеличенная высота */
+                min-height: 25pt !important;
                 vertical-align: middle !important;
             }}
 
             th {{
                 font-size: 12pt !important;
                 padding: 10pt 6pt !important;
+                border: 1px solid black !important;  /* Восстановлено */
             }}
 
             /* Принудительный перенос длинных слов */
@@ -1621,7 +1644,7 @@ def print_route_sheet(order_id):
                 background: white;
                 padding: 30px;
                 margin: 20px auto;
-                max-width: 1800px;  /* Увеличенная максимальная ширина */
+                max-width: 1800px;
                 box-shadow: 0 0 10px rgba(0,0,0,0.1);
             }}
         }}
@@ -1630,12 +1653,14 @@ def print_route_sheet(order_id):
 <body>
     <div class="print-container">
         <div class="driver-info">
-
             <div>
-                Водитель: <span class="text-align:left">{order.vehicle.driver}</span>
-                Машина: <span class="text-align:left">{order.vehicle.brand} ({order.vehicle.gos_number})</span>
+                <strong>Водитель:</strong>
+                <span class="editable" contenteditable="true" style="border-bottom: 1px solid #000; min-width: 200px; display: inline-block; margin-left: 5px;">
+                    {order.vehicle.driver}
+                </span>
+                <br>
+                <strong>Машина:</strong> {order.vehicle.brand} ({order.vehicle.gos_number})
             </div>
-
         </div>
 
         <div>
@@ -1647,7 +1672,7 @@ def print_route_sheet(order_id):
             <thead>
                 <tr>
                     <th class="col-no">№</th>
-                    <th class="col-request">Заявка</th>
+                    <th class="col-request">Заявка (Компания)</th>
                     <th class="col-address">Адрес</th>
                     <th class="col-time">Планируемое прибытие</th>
                     <th class="col-work">Время работы</th>
@@ -1794,7 +1819,7 @@ def print_route_sheet(order_id):
 
         function saveChanges() {{
             const changes = {{
-                driver: document.querySelector('.driver-info .editable:first-child')?.textContent || '',
+                driver: document.querySelector('.driver-info .editable')?.textContent || '',
                 vehicle: document.querySelector('.driver-info .editable:last-child')?.textContent || '',
                 waybill_number: document.querySelector('.document-title .editable')?.textContent || '',
                 cargo_items: []
@@ -1804,7 +1829,7 @@ def print_route_sheet(order_id):
                 const cells = row.querySelectorAll('td');
                 if (cells.length >= 9) {{
                     changes.cargo_items.push({{
-                        request: cells[1]?.textContent || '',
+                        company: cells[1]?.textContent || '',
                         address: cells[2]?.textContent || '',
                         arrival_time: cells[3]?.querySelector('input')?.value || '',
                         work_time: cells[4]?.querySelector('input')?.value || '',
@@ -1867,21 +1892,22 @@ def print_route_sheet(order_id):
             if (saved) {{
                 savedData = JSON.parse(saved);
 
+                // Восстанавливаем водителя
                 const driverSpan = document.querySelector('.driver-info .editable:first-child');
-                const vehicleSpan = document.querySelector('.driver-info .editable:last-child');
-                const waybillSpan = document.querySelector('.document-title .editable');
+                if (driverSpan && savedData.driver) {{
+                    driverSpan.textContent = savedData.driver;
+                }}
 
-                if (driverSpan && savedData.driver) driverSpan.textContent = savedData.driver;
-                if (vehicleSpan && savedData.vehicle) vehicleSpan.textContent = savedData.vehicle;
-                if (waybillSpan && savedData.waybill_number) waybillSpan.textContent = savedData.waybill_number;
-
+                // Восстанавливаем данные таблицы
                 if (savedData.cargo_items && savedData.cargo_items.length > 0) {{
                     document.querySelectorAll('tbody tr').forEach((row, index) => {{
                         if (savedData.cargo_items[index]) {{
                             const cells = row.querySelectorAll('td');
                             const item = savedData.cargo_items[index];
 
-                            if (cells[1]) cells[1].textContent = item.request || '';
+                            // Компания
+                            if (cells[1]) cells[1].textContent = item.company || '';
+                            // Адрес
                             if (cells[2]) cells[2].textContent = item.address || '';
 
                             const arrivalInput = cells[3]?.querySelector('input');

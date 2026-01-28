@@ -1516,6 +1516,7 @@ async function openEditModal(orderId) {
     document.getElementById("editOrderId").textContent = order.id;
     document.getElementById("editApplicant").value = order.applicant || "";
     document.getElementById("editDepartment").value = order.department || "";
+    document.getElementById("editCompany").value = order.company_name || "";
     document.getElementById("editPhone").value = order.phone_number || "";
     document.getElementById("editNote").value = order.note || "";
 
@@ -1566,6 +1567,7 @@ async function savePriority() {
 
 async function saveOrderChanges() {
   const data = {
+    company_name: document.getElementById("editCompany").value, // НОВОЕ
     applicant: document.getElementById("editApplicant").value,
     department: document.getElementById("editDepartment").value,
     phone_number: document.getElementById("editPhone").value,
