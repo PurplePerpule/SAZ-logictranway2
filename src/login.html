@@ -3,6 +3,44 @@
     <head>
         <link rel="stylesheet" href="./style.css" />
         <title>LogicTrans BY — Вход</title>
+        <style>
+            .login-form {
+                margin: 20px auto;
+                width: 300px;
+                padding: 20px;
+                border: 1px solid #ccc;
+                border-radius: 5px;
+            }
+
+            .login-form input {
+                width: 100%;
+                margin-bottom: 10px;
+                padding: 8px;
+                box-sizing: border-box;
+            }
+
+            .login-form button {
+                width: 100%;
+                padding: 10px;
+                background-color: #007bff;
+                color: white;
+                border: none;
+                border-radius: 3px;
+                cursor: pointer;
+            }
+
+            .login-footer {
+                text-align: center;
+                margin-top: 20px;
+                color: #666;
+            }
+
+            .error-message {
+                color: red;
+                margin-top: 10px;
+                text-align: center;
+            }
+        </style>
     </head>
     <body>
         <h1>Вход в систему</h1>
@@ -10,6 +48,7 @@
             <input type="text" id="username" placeholder="Логин" />
             <input type="password" id="password" placeholder="Пароль" />
             <button onclick="login()">Войти</button>
+            <div id="errorMessage" class="error-message"></div>
         </div>
 
         <div class="login-footer">
@@ -17,39 +56,64 @@
         </div>
 
         <script>
-            // Получаем текущий хост для API
-            const currentHost = window.location.origin;
-            console.log("Current host:", currentHost);
+            // Функция для отображения ошибок
+            function showError(message) {
+                const errorDiv = document.getElementById("errorMessage");
+                errorDiv.textContent = message;
+            }
 
+            // Функция для очистки ошибок
+            function clearError() {
+                const errorDiv = document.getElementById("errorMessage");
+                errorDiv.textContent = "";
+            }
+
+            // Функция логина
             async function login() {
+                clearError();
+
                 const username = document.getElementById("username").value;
                 const password = document.getElementById("password").value;
 
                 if (!username || !password) {
-                    alert("Введите логин и пароль");
+                    showError("Введите логин и пароль");
                     return;
                 }
 
                 try {
-                    const res = await fetch("/login", {
+                    console.log("Sending login request...");
+
+                    const response = await fetch("/login", {
                         method: "POST",
                         headers: {
                             "Content-Type": "application/json",
-                            Origin: window.location.origin,
                         },
-                        credentials: "include", // Важно: включаем куки
                         body: JSON.stringify({ username, password }),
                     });
 
-                    const data = await res.json();
+                    console.log("Response status:", response.status);
 
-                    if (res.ok) {
-                        console.log("Login successful, role:", data.role);
+                    // Сначала получаем текст, чтобы понять, что пришло
+                    const responseText = await response.text();
+                    console.log("Response text:", responseText);
+
+                    let data;
+                    try {
+                        data = JSON.parse(responseText);
+                    } catch (e) {
+                        console.error("Failed to parse JSON:", e);
+                        showError("Ошибка сервера: неверный формат ответа");
+                        return;
+                    }
+
+                    if (response.ok) {
+                        console.log("Login successful:", data);
 
                         // Сохраняем данные в localStorage
                         localStorage.setItem("token", data.token);
                         localStorage.setItem("userRole", data.role);
                         localStorage.setItem("userId", data.user_id);
+                        localStorage.setItem("username", data.username);
 
                         // Редирект в зависимости от роли
                         if (data.role === "admin") {
@@ -58,25 +122,27 @@
                             window.location.href = "/index.html";
                         }
                     } else {
-                        alert(data.error || "Неверный логин или пароль");
+                        showError(data.error || "Неверный логин или пароль");
                     }
-                } catch (err) {
-                    console.error("Login error:", err);
-                    alert("Ошибка соединения с сервером: " + err.message);
+                } catch (error) {
+                    console.error("Login error:", error);
+                    showError("Ошибка соединения с сервером");
                 }
             }
 
             // Проверяем авторизацию при загрузке
             document.addEventListener("DOMContentLoaded", function () {
+                console.log("Page loaded, checking authentication...");
+
                 const token = localStorage.getItem("token");
                 if (token) {
+                    console.log("Found token in localStorage, checking...");
+
                     // Проверяем токен
                     fetch("/me", {
                         headers: {
-                            Authorization: `Bearer ${token}`,
-                            Origin: window.location.origin,
+                            "Content-Type": "application/json",
                         },
-                        credentials: "include",
                     })
                         .then((response) => {
                             if (response.ok) {
@@ -85,19 +151,36 @@
                             throw new Error("Invalid token");
                         })
                         .then((user) => {
+                            console.log("User authenticated:", user);
                             if (user.role === "admin") {
                                 window.location.href = "/admin.html";
                             } else {
                                 window.location.href = "/index.html";
                             }
                         })
-                        .catch(() => {
+                        .catch((error) => {
+                            console.log("Token invalid:", error);
                             // Если токен невалидный, очищаем
                             localStorage.removeItem("token");
                             localStorage.removeItem("userRole");
                             localStorage.removeItem("userId");
+                            localStorage.removeItem("username");
                         });
+                } else {
+                    console.log("No token found, showing login page");
                 }
+
+                // Автофокус на поле логина
+                document.getElementById("username").focus();
+
+                // Обработка нажатия Enter
+                document
+                    .getElementById("password")
+                    .addEventListener("keypress", function (e) {
+                        if (e.key === "Enter") {
+                            login();
+                        }
+                    });
             });
         </script>
     </body>

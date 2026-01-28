@@ -1,6 +1,6 @@
 from itertools import permutations
 from datetime import datetime, timezone, timedelta, time
-from flask import Flask, jsonify, request, send_file, make_response
+from flask import Flask, jsonify, request, send_file, make_response, session
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from typing import List
@@ -47,7 +47,7 @@ def load_user(user_id):
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=1)  # Сессия на 1 час
 app.config["SESSION_COOKIE_SECURE"] = False # Только для HTTPS
 app.config["SESSION_COOKIE_HTTPONLY"] = True
-app.config["SESSION_COOKIE_SAMESITE"] = "None"
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_DOMAIN"] = None  # Разрешить все домены
 
 basedir = os.path.abspath(os.path.dirname(__file__))
@@ -327,38 +327,74 @@ def token_required(f):
         return f(*args, **kwargs)
     return decorated
 
-@app.route("/login", methods=["GET", "POST"])
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
+    print(f"Login request method: {request.method}")
+    print(f"Headers: {dict(request.headers)}")
+
     if request.method == "GET":
+        print("GET request to /login")
+        # Если пользователь уже авторизован, перенаправляем
         if current_user.is_authenticated:
+            print(f"User already authenticated: {current_user.username}")
             if current_user.role == "admin":
                 return redirect("/admin.html")
             else:
                 return redirect("/index.html")
+        # Если не авторизован, показываем страницу входа
+        print("Serving login page")
         return send_file(os.path.join(_static_root, "login.html"))
 
-    data = request.get_json() or {}
+    # Если POST запрос - обрабатываем логин
+    print("POST request to /login")
 
-    # Проверяем источник запроса для отладки
-    print(f"Login attempt from: {request.remote_addr}, Origin: {request.headers.get('Origin')}")
+    # Проверяем Content-Type
+    if request.is_json:
+        data = request.get_json()
+    else:
+        # Пробуем получить данные из form-data
+        data = request.form.to_dict()
+        if not data:
+            # Пробуем получить сырые данные
+            try:
+                raw_data = request.get_data(as_text=True)
+                if raw_data:
+                    import json
+                    data = json.loads(raw_data)
+            except:
+                data = {}
+
+    print(f"Login data: {data}")
 
     user = User.query.filter_by(username=data.get("username")).first()
 
     if not user or not check_password_hash(user.password, data.get("password", "")):
+        print(f"Login failed for user: {data.get('username')}")
         return jsonify({"error": "Неверный логин или пароль"}), 401
 
-    login_user(user, remember=True)
+    print(f"Login successful for user: {user.username}")
+    login_user(user)
 
-    # Явно устанавливаем сессию как постоянную
+    # Устанавливаем сессию как постоянную
     session.permanent = True
 
-    response = jsonify({
+    # Возвращаем JSON ответ
+    response_data = {
         "token": "ok",
         "role": user.role,
-        "user_id": user.id
-    })
+        "user_id": user.id,
+        "username": user.username,
+        "message": "Login successful"
+    }
+
+    response = jsonify(response_data)
+
+    # Добавляем заголовки CORS
+    origin = request.headers.get('Origin')
+    if origin:
+        response.headers.add('Access-Control-Allow-Origin', origin)
+    response.headers.add('Access-Control-Allow-Credentials', 'true')
 
     return response
 
@@ -367,6 +403,17 @@ def login():
 def logout():
     logout_user()
     return jsonify({"message": "Вышли из системы"})
+
+@app.route("/check_session", methods=["GET"])
+def check_session():
+    """Проверка текущей сессии"""
+    return jsonify({
+        "authenticated": current_user.is_authenticated,
+        "user_id": current_user.id if current_user.is_authenticated else None,
+        "username": current_user.username if current_user.is_authenticated else None,
+        "role": current_user.role if current_user.is_authenticated else None,
+        "session": dict(session)
+    })
 
 
 @app.route("/test_cors", methods=["GET", "OPTIONS"])
@@ -2593,24 +2640,12 @@ def favicon_ico():
 
 @app.after_request
 def after_request(response):
-    """Добавляем CORS заголовки ко всем ответам"""
-    origin = request.headers.get('Origin', '*')
-
-    # Разрешаем все локальные адреса
-    allowed_origins = [
-        'http://127.0.0.1:5000',
-        'http://localhost:5000',
-        'http://192.168.1.55:5000',
-        'http://192.168.15.189:5000',
-    ]
-
-    if origin in allowed_origins or origin.startswith('http://192.168.'):
+    origin = request.headers.get('Origin')
+    if origin:
         response.headers.add('Access-Control-Allow-Origin', origin)
-
     response.headers.add('Access-Control-Allow-Credentials', 'true')
     response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization')
     response.headers.add('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-
     return response
 
 @app.route("/debug")
@@ -2866,18 +2901,24 @@ def get_trips_stats():
 if __name__ == "__main__":
     with app.app_context():
         if not User.query.first():
-
             user = User(username="user", password=generate_password_hash("sazwork205"), role="user")
-
             admin = User(username="admin", password=generate_password_hash("sazadmin2025"), role="admin")
-
             db.session.add(user)
-
             db.session.add(admin)
-
             db.session.commit()
+            print("Created default users: user/sazwork205 and admin/sazadmin2025")
 
         db.create_all()
+
+        # Запускаем проверку дедлайнов в отдельном потоке
         thread = Thread(target=check_order_deadlines, daemon=True)
         thread.start()
-    app.run(debug=True, port=5000)
+
+        print("=" * 50)
+        print("Server starting...")
+        print(f"Access URLs:")
+        print(f"  Local: http://127.0.0.1:5000")
+        print(f"  Network: http://{socket.gethostbyname(socket.gethostname())}:5000")
+        print("=" * 50)
+
+    app.run(debug=True, host='0.0.0.0', port=5000)
