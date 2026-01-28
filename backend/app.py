@@ -315,11 +315,19 @@ def token_required(f):
 
 @app.route("/login", methods=["GET", "POST"])
 
+@app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "GET":
-        # Просто отображаем страницу входа
+        # Если пользователь уже авторизован, перенаправляем в зависимости от роли
+        if current_user.is_authenticated:
+            if current_user.role == "admin":
+                return redirect("/admin.html")
+            else:
+                return redirect("/index.html")
+        # Если не авторизован, показываем страницу входа
         return send_file(os.path.join(_static_root, "login.html"))
 
+    # Если POST запрос - обрабатываем логин
     data = request.get_json() or {}
 
     user = User.query.filter_by(username=data.get("username")).first()
@@ -328,7 +336,6 @@ def login():
         return jsonify({"error": "Неверный логин или пароль"}), 401
 
     login_user(user)
-    # Возвращаем "token" для обратной совместимости с фронтом
     return jsonify({"token": "ok", "role": user.role})
 
 @app.route("/logout", methods=["POST"])
@@ -2517,20 +2524,11 @@ def root_page():
 def index_html():
     return send_file(os.path.join(_static_root, "index.html"))
 
-@app.route("/login.html")
-def login_html():
-    return send_file(os.path.join(_static_root, "login.html"))
-
-
 @app.route("/admin.html")
 @login_required
 @role_required("admin")
 def admin_html():
     return send_file(os.path.join(_static_root, "admin.html"))
-
-@app.route("/confirm.html")
-def confirm_html():
-    return send_file(os.path.join(_static_root, "confirm.html"))
 
 @app.route("/script.js")
 def script_js():
@@ -2539,10 +2537,6 @@ def script_js():
 @app.route("/admin.js")
 def admin_js():
     return send_file(os.path.join(_static_root, "admin.js"))
-
-@app.route("/confirm.js")
-def confirm_js():
-    return send_file(os.path.join(_static_root, "confirm.js"))
 
 @app.route("/style.css")
 def style_css():

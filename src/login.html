@@ -1,110 +1,85 @@
 <!doctype html>
 <html lang="ru">
     <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Вход в систему</title>
         <link rel="stylesheet" href="./style.css" />
-        <title>LogicTrans BY — Вход</title>
     </head>
     <body>
-        <h1>Вход в систему</h1>
-        <div
-            style="
-                margin: 20px auto;
-                width: 300px;
-                padding: 20px;
-                border: 1px solid #ccc;
-                border-radius: 5px;
-            "
-        >
-            <input
-                type="text"
-                id="username"
-                placeholder="Логин"
-                style="width: 100%; margin-bottom: 10px; padding: 8px"
-            />
-            <input
-                type="password"
-                id="password"
-                placeholder="Пароль"
-                style="width: 100%; margin-bottom: 20px; padding: 8px"
-            />
-            <button
-                onclick="login()"
-                style="
-                    width: 100%;
-                    padding: 10px;
-                    background-color: #007bff;
-                    color: white;
-                    border: none;
-                    border-radius: 3px;
-                "
-            >
-                Войти
-            </button>
+        <div class="login-container">
+            <h1>Вход в систему</h1>
+            <form id="loginForm">
+                <div class="form-group">
+                    <label for="username">Логин</label>
+                    <input type="text" id="username" required />
+                </div>
+                <div class="form-group">
+                    <label for="password">Пароль</label>
+                    <input type="password" id="password" required />
+                </div>
+                <button type="submit">Войти</button>
+            </form>
+            <div id="error" style="color: red; margin-top: 15px"></div>
         </div>
 
-        <div style="text-align: center; margin-top: 20px; color: #666">
-            <p>Для получения доступа обратитесь к администратору системы</p>
-        </div>
         <script>
-            // Проверяем, авторизован ли пользователь
-            const token = localStorage.getItem("token");
-            if (token) {
-                // Если есть токен, проверяем роль и перенаправляем
-                fetch(`${API}/me`, {
-                    headers: {
-                        Authorization: `Bearer ${token}`,
-                    },
-                })
-                    .then((response) => response.json())
-                    .then((user) => {
-                        if (user.role === "admin") {
-                            window.location.href = "admin.html";
-                        } else {
-                            window.location.href = "index.html";
-                        }
-                    })
-                    .catch(() => {
-                        // Если токен невалидный, очищаем и остаемся на странице входа
-                        localStorage.removeItem("token");
-                    });
+            // Определяем API для текущего хоста
+            const API = window.location.origin;
+
+            // Функция для получения параметров из URL
+            function getQueryParam(name) {
+                const urlParams = new URLSearchParams(window.location.search);
+                return urlParams.get(name);
             }
-        </script>
-        <script>
-            const API = "";
-            async function login() {
-                const username = document.getElementById("username").value;
-                const password = document.getElementById("password").value;
 
-                if (!username || !password) {
-                    alert("Введите логин и пароль");
-                    return;
-                }
+            // Получаем параметр next из URL
+            const nextPage = getQueryParam("next");
 
-                try {
-                    const res = await fetch(`${API}/login`, {
+            document
+                .getElementById("loginForm")
+                .addEventListener("submit", function (event) {
+                    event.preventDefault();
+                    const username = document.getElementById("username").value;
+                    const password = document.getElementById("password").value;
+
+                    fetch(API + "/login", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ username, password }),
-                    });
+                    })
+                        .then((response) => {
+                            if (response.ok) {
+                                return response.json();
+                            } else {
+                                throw new Error("Ошибка входа");
+                            }
+                        })
+                        .then((data) => {
+                            if (data.token) {
+                                localStorage.setItem("token", data.token);
 
-                    if (res.ok) {
-                        const data = await res.json();
-                        localStorage.setItem("token", data.token);
-
-                        if (data.role === "admin") {
-                            window.location = "admin.html";
-                        } else {
-                            window.location = "index.html";
-                        }
-                    } else {
-                        const error = await res.json();
-                        alert(error.error || "Неверный логин или пароль");
-                    }
-                } catch (err) {
-                    console.error(err);
-                    alert("Ошибка соединения с сервером");
-                }
-            }
+                                // Если есть next параметр, перенаправляем туда
+                                if (nextPage) {
+                                    window.location.href = nextPage;
+                                } else {
+                                    // Иначе по умолчанию в зависимости от роли
+                                    if (data.role === "admin") {
+                                        window.location.href = "admin.html";
+                                    } else {
+                                        window.location.href = "index.html";
+                                    }
+                                }
+                            } else {
+                                alert(data.error || "Ошибка входа");
+                            }
+                        })
+                        .catch((error) => {
+                            console.error("Ошибка:", error);
+                            document.getElementById("error").textContent =
+                                "Ошибка входа. Проверьте логин и пароль.";
+                        });
+                });
         </script>
     </body>
 </html>
