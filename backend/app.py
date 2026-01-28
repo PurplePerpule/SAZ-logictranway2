@@ -313,9 +313,12 @@ def token_required(f):
         return f(*args, **kwargs)
     return decorated
 
-@app.route("/login", methods=["POST"])
+@app.route("/login", methods=["GET", "POST"])
 
 def login():
+    if request.method == "GET":
+        # Просто отображаем страницу входа
+        return send_file(os.path.join(_static_root, "login.html"))
 
     data = request.get_json() or {}
 
