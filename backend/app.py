@@ -2622,6 +2622,18 @@ def index_html():
 def admin_html():
     return send_file(os.path.join(_static_root, "admin.html"))
 
+
+@app.route("/login.html")
+def login_html():
+    """Маршрут для явного доступа к login.html"""
+    # Если пользователь уже авторизован, перенаправляем
+    if current_user.is_authenticated:
+        if current_user.role == "admin":
+            return redirect("/admin.html")
+        else:
+            return redirect("/index.html")
+    return send_file(os.path.join(_static_root, "login.html"))
+
 @app.route("/script.js")
 def script_js():
     return send_file(os.path.join(_static_root, "script.js"))

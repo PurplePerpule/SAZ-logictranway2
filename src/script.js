@@ -601,9 +601,10 @@ async function logout() {
   try {
     const token = localStorage.getItem("token");
     if (token) {
-      await fetch(`${API_URL}/logout`, {
+      await fetch("/logout", {
         method: "POST",
         headers: {
+          "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
       });
@@ -611,14 +612,14 @@ async function logout() {
   } catch (error) {
     console.error("Ошибка при выходе:", error);
   } finally {
+    // Очищаем localStorage
     localStorage.removeItem("token");
-    // Очищаем все cookies
-    document.cookie.split(";").forEach(function (c) {
-      document.cookie = c
-        .replace(/^ +/, "")
-        .replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
-    });
-    window.location.href = "login.html";
+    localStorage.removeItem("userRole");
+    localStorage.removeItem("userId");
+    localStorage.removeItem("username");
+
+    // Перенаправляем на страницу входа
+    window.location.href = "/login.html";
   }
 }
 
