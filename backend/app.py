@@ -2493,7 +2493,12 @@ def bulk_import_locations():
         return jsonify({"error": "Поддерживаются только CSV и Excel файлы"}), 400
 
     try:
-        import pandas as pd
+        # Импортируем pandas внутри функции, чтобы не ломать весь код
+        try:
+            import pandas as pd
+        except ImportError:
+            return jsonify({"error": "Библиотека pandas не установлена. Установите: pip install pandas"}), 500
+
         from io import BytesIO
 
         # Читаем файл в зависимости от формата
@@ -2510,23 +2515,76 @@ def bulk_import_locations():
 
         imported_count = 0
         skipped_count = 0
+        error_rows = []
 
-        for _, row in df.iterrows():
-            # Проверяем, существует ли уже такой адрес
-            existing = Location.query.filter_by(address=row['address']).first()
-            if existing:
+        for index, row in df.iterrows():
+            # Проверяем адрес на пустоту
+            address = row.get('address')
+
+            # Пропускаем пустые, NaN или None адреса
+            if pd.isna(address) or str(address).strip() == '':
                 skipped_count += 1
+                error_rows.append(f"Строка {index+2}: Пустой адрес")
                 continue
 
+            # Очищаем адрес от лишних пробелов
+            address_clean = str(address).strip()
+
+            # Проверяем, существует ли уже такой адрес
+            existing = Location.query.filter_by(address=address_clean).first()
+            if existing:
+                skipped_count += 1
+                error_rows.append(f"Строка {index+2}: Адрес уже существует: {address_clean}")
+                continue
+
+            # Обрабатываем другие поля, заменяя NaN на None
+            company_name = row.get('company_name')
+            if pd.isna(company_name):
+                company_name = ''
+            else:
+                company_name = str(company_name).strip()
+
+            # Обработка контактного лица
+            contact_person = row.get('contact_person')
+            if pd.isna(contact_person):
+                contact_person = None
+            else:
+                contact_person = str(contact_person).strip()
+
+            # Обработка телефона
+            phone_number = row.get('phone_number')
+            if pd.isna(phone_number):
+                phone_number = None
+            else:
+                phone_number = str(phone_number).strip()
+
+            # Обработка email
+            email = row.get('email')
+            if pd.isna(email):
+                email = None
+            else:
+                email = str(email).strip()
+
+            # Обработка примечаний
+            notes = row.get('notes')
+            if pd.isna(notes):
+                notes = None
+            else:
+                notes = str(notes).strip()
+
+            # Булевые поля
+            is_departure = bool(row.get('is_departure', True))
+            is_destination = bool(row.get('is_destination', True))
+
             location = Location(
-                company_name=row.get('company_name', ''),
-                address=row['address'],
-                is_departure=bool(row.get('is_departure', True)),
-                is_destination=bool(row.get('is_destination', True)),
-                contact_person=row.get('contact_person'),
-                phone_number=row.get('phone_number'),
-                email=row.get('email'),
-                notes=row.get('notes'),
+                company_name=company_name,
+                address=address_clean,
+                is_departure=is_departure,
+                is_destination=is_destination,
+                contact_person=contact_person,
+                phone_number=phone_number,
+                email=email,
+                notes=notes,
                 created_by=current_user.id
             )
 
@@ -2535,11 +2593,17 @@ def bulk_import_locations():
 
         db.session.commit()
 
-        return jsonify({
+        response = {
             "message": "Импорт завершен",
             "imported": imported_count,
-            "skipped": skipped_count
-        })
+            "skipped": skipped_count,
+        }
+
+        # Добавляем информацию об ошибках, если они есть
+        if error_rows:
+            response["warnings"] = error_rows[:10]  # Показываем только первые 10 ошибок
+
+        return jsonify(response)
 
     except Exception as e:
         db.session.rollback()
