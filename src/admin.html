@@ -8,6 +8,7 @@
             src="https://api-maps.yandex.ru/2.1/?apikey=28cae7bd-c3b7-4145-94bb-923d2ab7c54e&lang=ru_RU"
             type="text/javascript"
         ></script>
+        <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     </head>
     <body>
         <h1>Диспетчерская САЗа</h1>
@@ -85,6 +86,20 @@
                 style="background: #4caf50"
             >
                 🧠 Умное распределение
+            </button>
+            <button
+                class="btn"
+                onclick="cleanupEmptyOrders()"
+                style="background: #ff5722"
+            >
+                🗑️ Очистка пустых
+            </button>
+            <button
+                class="btn"
+                onclick="showOrdersAnalytics()"
+                style="background: #9c27b0"
+            >
+                📊 Аналитика
             </button>
             <button
                 class="btn"

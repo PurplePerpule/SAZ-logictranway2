@@ -2,6 +2,7 @@ from app import Vehicle, User, Location, app, db
 from werkzeug.security import generate_password_hash
 
 
+
 sample_vehicles = [
     {
         "garage_number": 1,

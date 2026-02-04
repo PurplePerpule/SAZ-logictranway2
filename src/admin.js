@@ -924,12 +924,16 @@ async function suggestVehicle(orderId) {
 
 // Умное распределение
 async function autoDistributeSmart() {
-  if (!confirm("Выполнить умное распределение всех нераспределенных заявок?")) {
+  if (
+    !confirm("Запустить оптимизированное распределение (алгоритм Bin Packing)?")
+  ) {
     return;
   }
 
+  showLoader();
+
   try {
-    const response = await fetch(`${API}/auto_distribute_smart`, {
+    const response = await fetch(`${API}/auto_distribute_optimized`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -940,16 +944,204 @@ async function autoDistributeSmart() {
     const result = await response.json();
 
     if (response.ok) {
-      alert(
-        `Умное распределение завершено!\n\nОбработано заявок: ${result.statistics.orders_processed}\nИспользовано машин: ${result.statistics.vehicles_used}`,
-      );
+      const stats = result.statistics;
+
+      let html = `
+        <div style="text-align: left;">
+          <h3>Распределение завершено!</h3>
+          <p><strong>Обработано грузов:</strong> ${stats.total_cargos}</p>
+          <p><strong>Распределено грузов:</strong> ${stats.cargos_distributed}</p>
+          <p><strong>Использовано машин:</strong> ${stats.vehicles_used}</p>
+          <p><strong>Удалено заявок:</strong> ${stats.original_orders_deleted}</p>
+          <p><strong>Эффективность:</strong> ${((stats.cargos_distributed * 100) / stats.total_cargos).toFixed(1)}%</p>
+      `;
+
+      if (result.assignments.length > 0) {
+        html += `<hr><h4>Созданные заявки:</h4><ul>`;
+        result.assignments.forEach((a) => {
+          html += `<li><strong>Заявка #${a.new_order_id}:</strong> Машина ${a.vehicle} (${a.driver}) - ${a.cargos_count} грузов, загрузка ${a.load_percentage}%</li>`;
+        });
+        html += `</ul>`;
+      }
+
+      html += `</div>`;
+
+      if (typeof Swal !== "undefined") {
+        Swal.fire({
+          title: "Успешно!",
+          html: html,
+          icon: "success",
+          width: 600,
+        });
+      } else {
+        alert(html.replace(/<[^>]*>/g, ""));
+      }
+
+      // Обновляем данные
+      setTimeout(() => {
+        loadOrders();
+        loadVehicles();
+      }, 1000);
+    } else {
+      alert("Ошибка: " + (result.error || "Неизвестная ошибка"));
+    }
+  } catch (error) {
+    console.error("Ошибка распределения:", error);
+    alert("Ошибка соединения с сервером");
+  } finally {
+    hideLoader();
+  }
+}
+
+// Функция для аналитики
+async function showOrdersAnalytics() {
+  try {
+    const response = await fetch(`${API}/orders/analytics`, {
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem("token")}`,
+      },
+    });
+
+    const analytics = await response.json();
+
+    // Проверяем, есть ли ошибка
+    if (analytics.error) {
+      throw new Error(analytics.error);
+    }
+
+    // Формируем HTML для отчета
+    let html = `
+      <h3>Аналитика заявок</h3>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+        <div>
+          <h4>Статусы заявок</h4>
+          <table style="width: 100%;">
+            <tr><th>Статус</th><th>Количество</th></tr>
+            ${
+              analytics.status_distribution &&
+              analytics.status_distribution.length > 0
+                ? analytics.status_distribution
+                    .map(
+                      (s) => `<tr><td>${s.status}</td><td>${s.count}</td></tr>`,
+                    )
+                    .join("")
+                : '<tr><td colspan="2">Нет данных</td></tr>'
+            }
+          </table>
+        </div>
+        <div>
+          <h4>Приоритеты новых заявок</h4>
+          <table style="width: 100%;">
+            <tr><th>Приоритет</th><th>Количество</th></tr>
+            ${
+              analytics.priority_distribution &&
+              analytics.priority_distribution.length > 0
+                ? analytics.priority_distribution
+                    .map(
+                      (p) =>
+                        `<tr><td>${p.priority}</td><td>${p.count}</td></tr>`,
+                    )
+                    .join("")
+                : '<tr><td colspan="2">Нет данных</td></tr>'
+            }
+          </table>
+        </div>
+      </div>
+
+      <h4>Загрузка машин</h4>
+      <div style="max-height: 300px; overflow-y: auto;">
+        <table style="width: 100%;">
+          <tr>
+            <th>Гараж</th>
+            <th>Марка</th>
+            <th>Загружено</th>
+            <th>Вместимость</th>
+            <th>Использование</th>
+          </tr>
+          ${
+            analytics.vehicle_utilization &&
+            analytics.vehicle_utilization.length > 0
+              ? analytics.vehicle_utilization
+                  .map(
+                    (v) =>
+                      `<tr>
+                  <td>${v.garage_number}</td>
+                  <td>${v.brand}</td>
+                  <td>${v.total_weight} кг</td>
+                  <td>${v.capacity} кг</td>
+                  <td>${v.utilization_percent}%</td>
+                </tr>`,
+                  )
+                  .join("")
+              : '<tr><td colspan="5">Нет данных</td></tr>'
+          }
+        </table>
+      </div>
+
+      <p><strong>Пустых заявок:</strong> ${analytics.empty_orders_count || 0}</p>
+    `;
+
+    // Используем Swal если доступен, иначе простой alert
+    if (typeof Swal !== "undefined") {
+      Swal.fire({
+        title: "Аналитика заявок",
+        html: html,
+        width: 800,
+        showCloseButton: true,
+      });
+    } else {
+      // Для простого alert выводим текстовую версию
+      let text = "Аналитика заявок:\n\n";
+      if (analytics.status_distribution) {
+        text += "Статусы:\n";
+        analytics.status_distribution.forEach((s) => {
+          text += `${s.status}: ${s.count}\n`;
+        });
+      }
+      alert(text);
+    }
+  } catch (error) {
+    console.error("Ошибка загрузки аналитики:", error);
+    alert("Не удалось загрузить аналитику: " + error.message);
+  }
+}
+
+// Функция для очистки пустых заявок
+async function cleanupEmptyOrders() {
+  if (!confirm("Удалить все пустые заявки?")) {
+    return;
+  }
+
+  try {
+    const response = await fetch(`${API}/orders/cleanup`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${localStorage.getItem("token")}`,
+      },
+    });
+
+    const result = await response.json();
+
+    if (response.ok) {
+      if (typeof Swal !== "undefined") {
+        Swal.fire({
+          title: "Очистка завершена!",
+          text: `Удалено ${result.empty_orders_deleted || 0} пустых заявок`,
+          icon: "success",
+        });
+      } else {
+        alert(
+          `Очистка завершена! Удалено ${result.empty_orders_deleted || 0} пустых заявок`,
+        );
+      }
+
       loadOrders();
-      loadVehicles();
     } else {
       alert("Ошибка: " + result.error);
     }
   } catch (error) {
-    console.error("Ошибка распределения:", error);
+    console.error("Ошибка очистки:", error);
     alert("Ошибка соединения с сервером");
   }
 }

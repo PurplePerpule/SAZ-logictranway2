@@ -603,6 +603,89 @@ def get_orders():
 
     return jsonify(orders_data)
 
+
+@app.route("/orders/analytics", methods=["GET"])
+@login_required
+@role_required("admin")
+def get_orders_analytics():
+    """
+    Аналитика по заявкам для принятия решений
+    """
+    try:
+        # Статистика по статусам
+        status_stats = db.session.query(
+            Order.status,
+            db.func.count(Order.id).label('count')
+        ).group_by(Order.status).all()
+
+        # Статистика по приоритетам
+        priority_stats = db.session.query(
+            Order.priority,
+            db.func.count(Order.id).label('count')
+        ).filter(Order.status == "new").group_by(Order.priority).all()
+
+        # Анализ загрузки машин
+        vehicle_load = []
+        vehicles = Vehicle.query.all()
+
+        for vehicle in vehicles:
+            # Находим заявки, назначенные на эту машину
+            assigned_orders = Order.query.filter_by(
+                vehicle_id=vehicle.id,
+                status="assigned"
+            ).all()
+
+            total_weight = 0
+            for order in assigned_orders:
+                for cargo in order.cargos:
+                    total_weight += cargo.weight * cargo.quantity
+
+            vehicle_load.append({
+                "garage_number": vehicle.garage_number,
+                "brand": vehicle.brand,
+                "capacity": vehicle.capacity,
+                "assigned_orders": len(assigned_orders),
+                "total_weight": total_weight,
+                "utilization_percent": round((total_weight / vehicle.capacity * 100), 1) if vehicle.capacity > 0 else 0
+            })
+
+        # Рекомендации по распределению
+        recommendations = []
+
+        # Проверяем возможность обратных рейсов
+        new_orders = Order.query.filter_by(status="new").all()
+
+        # Считаем пустые заявки
+        empty_orders_count = Order.query.filter_by(status="new").filter(
+            ~Order.cargos.any()
+        ).count()
+
+        return jsonify({
+            "status_distribution": [
+                {"status": stat[0], "count": stat[1]}
+                for stat in status_stats
+            ],
+            "priority_distribution": [
+                {"priority": stat[0], "count": stat[1]}
+                for stat in priority_stats
+            ],
+            "vehicle_utilization": vehicle_load,
+            "recommendations": recommendations,
+            "empty_orders_count": empty_orders_count
+        })
+
+    except Exception as e:
+        app.logger.error(f"Ошибка аналитики: {str(e)}")
+        return jsonify({
+            "error": f"Ошибка аналитики: {str(e)}",
+            "status_distribution": [],
+            "priority_distribution": [],
+            "vehicle_utilization": [],
+            "recommendations": [],
+            "empty_orders_count": 0
+        })
+
+
 @app.route("/orders/<int:order_id>", methods=["GET"])
 def get_order_by_id(order_id):
     order = Order.query.get_or_404(order_id)
@@ -1147,147 +1230,316 @@ def match_vehicle():
         },
     }), 404
 
-@app.route("/auto_distribute_smart", methods=["POST"])
+@app.route("/orders/deduplicate", methods=["POST"])
 @login_required
 @role_required("admin")
-def auto_distribute_smart():
+def deduplicate_orders():
     """
-    Умное автоматическое распределение с учетом:
-    - Приоритета заявок
-    - Времени отправления
-    - Группировки по направлениям
-    - Оптимизации загрузки
+    Автоматическое обнаружение и удаление дубликатов заявок
     """
     try:
-        # Получаем все новые заявки
-        new_orders = Order.query.filter_by(status="new").order_by(
-            # Сначала по приоритету (high > normal > low)
-            Order.priority.desc(),
-            # Затем по времени отправления (раньше -> позже)
-            Order.preferred_departure_date.asc()  # ВМЕСТО preferred_departure_time
-        ).all()
+        new_orders = Order.query.filter_by(status="new").all()
+        duplicates_found = 0
 
-        # Получаем свободные машины
-        free_vehicles = Vehicle.query.filter_by(status="free").all()
+        # Группируем заявки по "отпечатку"
+        orders_by_fingerprint = {}
 
-        if not free_vehicles:
-            return jsonify({"error": "Нет свободных машин"}), 400
-
-        if not new_orders:
-            return jsonify({"error": "Нет новых заявок"}), 400
-
-        # Группируем заявки по направлениям (по первому пункту назначения)
-        orders_by_direction = {}
         for order in new_orders:
-            if order.cargos:
-                # Берем первый пункт назначения как ключ направления
-                first_destination = order.cargos[0].destination
-                if first_destination not in orders_by_direction:
-                    orders_by_direction[first_destination] = []
-                orders_by_direction[first_destination].append(order)
+            # Создаем отпечаток заявки на основе грузов
+            fingerprint_parts = []
 
-        # Распределение
-        assignments = []
-        used_vehicles = []
+            for cargo in sorted(order.cargos, key=lambda c: c.name):
+                cargo_hash = f"{cargo.name}_{cargo.weight}_{cargo.quantity}_{cargo.departure}_{cargo.destination}"
+                fingerprint_parts.append(cargo_hash)
 
-        for direction, orders in orders_by_direction.items():
-            # Группируем грузы по типу тента для этого направления
-            cargos_by_tent = {}
-            for order in orders:
-                for cargo in order.cargos:
-                    tent_type = cargo.tent_type
-                    if tent_type not in cargos_by_tent:
-                        cargos_by_tent[tent_type] = []
-                    cargos_by_tent[tent_type].append({
-                        "cargo": cargo,
-                        "order_id": order.id
-                    })
+            fingerprint = "|".join(sorted(fingerprint_parts))
 
-            # Распределяем для каждого типа тента
-            for tent_type, cargo_items in cargos_by_tent.items():
-                # Находим машины с нужным типом тента
-                available_vehicles = [v for v in free_vehicles
-                                    if v.tent_type == tent_type and v.id not in used_vehicles]
+            if fingerprint:
+                if fingerprint not in orders_by_fingerprint:
+                    orders_by_fingerprint[fingerprint] = []
 
-                if not available_vehicles:
-                    continue
+                orders_by_fingerprint[fingerprint].append(order)
 
-                # Сортируем грузы по объему (большие сначала)
-                cargo_items.sort(key=lambda x: x["cargo"].length * x["cargo"].width * x["cargo"].height,
-                               reverse=True)
+        # Удаляем дубликаты (оставляем самую старую)
+        for fingerprint, orders in orders_by_fingerprint.items():
+            if len(orders) > 1:
+                # Сортируем по дате создания (самая старая первая)
+                orders.sort(key=lambda o: o.created_at)
 
-                # Алгоритм "First Fit Decreasing" для упаковки
-                for vehicle in available_vehicles:
-                    vehicle_cargos = []
-                    remaining_weight = vehicle.capacity
-                    remaining_volume = vehicle.length * vehicle.width * vehicle.height
-
-                    for item in cargo_items[:]:  # Копия для итерации
-                        cargo = item["cargo"]
-                        cargo_weight = cargo.weight * cargo.quantity
-                        cargo_volume = cargo.length * cargo.width * cargo.height * cargo.quantity
-
-                        if (cargo_weight <= remaining_weight and
-                            cargo_volume <= remaining_volume and
-                            cargo.length <= vehicle.length and
-                            cargo.width <= vehicle.width and
-                            cargo.height <= vehicle.height):
-
-                            vehicle_cargos.append(item)
-                            remaining_weight -= cargo_weight
-                            remaining_volume -= cargo_volume
-                            cargo_items.remove(item)  # Удаляем из списка доступных
-
-                    if vehicle_cargos:
-                        # Создаем объединенную заявку
-                        new_order = Order(
-                            status="assigned",
-                            vehicle_id=vehicle.id,
-                            applicant="Автоматическое объединение",
-                            department="Система",
-                            user_id=current_user.id,
-                            note=f"Объединены заявки: {', '.join(set(str(item['order_id']) for item in vehicle_cargos))}. Направление: {direction}"
-                        )
-
-                        db.session.add(new_order)
-                        db.session.flush()
-
-                        # Добавляем грузы
-                        for item in vehicle_cargos:
-                            new_order.cargos.append(item["cargo"])
-
-                        # Обновляем статусы исходных заявок
-                        for order_id in set(item['order_id'] for item in vehicle_cargos):
-                            order = Order.query.get(order_id)
-                            order.status = "assigned"
-                            order.note = f"Объединена в заявку #{new_order.id}"
-
-                        # Обновляем машину
-                        vehicle.status = "busy"
-                        used_vehicles.append(vehicle.id)
-
-                        assignments.append({
-                            "vehicle": vehicle.garage_number,
-                            "direction": direction,
-                            "cargos_count": len(vehicle_cargos),
-                            "new_order_id": new_order.id
-                        })
+                # Оставляем первую (самую старую), остальные удаляем
+                for order in orders[1:]:
+                    db.session.delete(order)
+                    duplicates_found += 1
 
         db.session.commit()
 
         return jsonify({
-            "message": "Умное распределение завершено",
+            "message": "Поиск дубликатов завершен",
+            "duplicates_removed": duplicates_found,
+            "unique_orders_remaining": len(new_orders) - duplicates_found
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Ошибка удаления дубликатов: {str(e)}"}), 500
+
+@app.route("/auto_distribute_optimized", methods=["POST"])
+@login_required
+@role_required("admin")
+def auto_distribute_smart():
+    """
+    Оптимизированное распределение с максимальной загрузкой машин
+    """
+    try:
+        app.logger.info("=== НАЧАЛО ОПТИМИЗИРОВАННОГО РАСПРЕДЕЛЕНИЯ ===")
+
+        # Шаг 1: Удаляем пустые заявки
+        empty_orders = Order.query.filter_by(status="new").filter(
+            ~Order.cargos.any()
+        ).all()
+
+        for order in empty_orders:
+            db.session.delete(order)
+        app.logger.info(f"Удалено {len(empty_orders)} пустых заявок")
+
+        # Шаг 2: Получаем ВСЕ грузы из всех новых заявок
+        new_orders = Order.query.filter_by(status="new").all()
+        if not new_orders:
+            return jsonify({"message": "Нет новых заявок"}), 200
+
+        # Собираем все грузы в один плоский список
+        all_cargos = []
+        for order in new_orders:
+            for cargo in order.cargos:
+                all_cargos.append({
+                    "cargo": cargo,
+                    "source_order_id": order.id
+                })
+
+        app.logger.info(f"Всего грузов для распределения: {len(all_cargos)}")
+
+        # Шаг 3: Получаем свободные машины
+        free_vehicles = Vehicle.query.filter_by(status="free").all()
+        if not free_vehicles:
+            return jsonify({"error": "Нет свободных машин"}), 400
+
+        app.logger.info(f"Доступно свободных машин: {len(free_vehicles)}")
+
+        # Шаг 4: Группируем грузы по типу тента
+        cargos_by_tent = {}
+        for item in all_cargos:
+            cargo = item["cargo"]
+            tent_type = cargo.tent_type
+            if tent_type not in cargos_by_tent:
+                cargos_by_tent[tent_type] = []
+            cargos_by_tent[tent_type].append(item)
+
+        app.logger.info(f"Типы тентов: {list(cargos_by_tent.keys())}")
+
+        # Шаг 5: Алгоритм First Fit Decreasing для каждого типа тента
+        assignments = []
+        used_vehicles = set()
+        processed_cargo_ids = set()
+
+        for tent_type, cargo_items in cargos_by_tent.items():
+            app.logger.info(f"Обработка тента '{tent_type}', грузов: {len(cargo_items)}")
+
+            # Фильтруем машины с нужным типом тента
+            suitable_vehicles = [
+                v for v in free_vehicles
+                if v.tent_type == tent_type and v.id not in used_vehicles
+            ]
+
+            if not suitable_vehicles:
+                app.logger.warning(f"Нет машин с типом тента '{tent_type}'")
+                continue
+
+            # Сортируем грузы по объему/весу (сначала самые большие)
+            cargo_items.sort(
+                key=lambda x: x["cargo"].weight * x["cargo"].quantity,
+                reverse=True
+            )
+
+            # Сортируем машины по вместимости (сначала самые маленькие)
+            suitable_vehicles.sort(key=lambda v: v.capacity)
+
+            # Распределяем грузы по машинам
+            vehicle_index = 0
+
+            while cargo_items and vehicle_index < len(suitable_vehicles):
+                vehicle = suitable_vehicles[vehicle_index]
+                app.logger.info(f"Загружаем машину {vehicle.garage_number} ({vehicle.capacity}кг)")
+
+                vehicle_cargos = []
+                remaining_capacity = vehicle.capacity
+                remaining_volume = vehicle.length * vehicle.width * vehicle.height
+
+                i = 0
+                while i < len(cargo_items):
+                    item = cargo_items[i]
+                    cargo = item["cargo"]
+
+                    # Рассчитываем вес и объем груза
+                    cargo_weight = cargo.weight * cargo.quantity
+                    cargo_volume = 0
+
+                    if cargo.cargo_type == "dimensions" and cargo.length and cargo.width and cargo.height:
+                        cargo_volume = cargo.length * cargo.width * cargo.height * cargo.quantity
+                    elif cargo.cargo_type == "volume" and cargo.volume:
+                        cargo_volume = cargo.volume * cargo.quantity
+
+                    # Проверяем габариты
+                    fits_dimensions = True
+                    if cargo.cargo_type == "dimensions":
+                        fits_dimensions = (
+                            cargo.length <= vehicle.length and
+                            cargo.width <= vehicle.width and
+                            cargo.height <= vehicle.height
+                        )
+
+                    # Проверяем, помещается ли груз
+                    if (cargo_weight <= remaining_capacity and
+                        cargo_volume <= remaining_volume and
+                        fits_dimensions):
+
+                        vehicle_cargos.append(item)
+                        remaining_capacity -= cargo_weight
+                        remaining_volume -= cargo_volume
+                        processed_cargo_ids.add(cargo.id)
+                        cargo_items.pop(i)  # Удаляем из списка
+                    else:
+                        i += 1  # Переходим к следующему грузу
+
+                # Если набрали грузы для машины
+                if vehicle_cargos:
+                    # Создаем новую заявку
+                    new_order = Order(
+                        status="assigned",
+                        vehicle_id=vehicle.id,
+                        applicant="Автоматическое распределение",
+                        department="Система",
+                        user_id=current_user.id,
+                        note=f"Оптимизированное распределение. Грузы из заявок: {', '.join(sorted(set(str(item['source_order_id']) for item in vehicle_cargos)))}"
+                    )
+
+                    db.session.add(new_order)
+                    db.session.flush()
+
+                    # Добавляем грузы в новую заявку
+                    for item in vehicle_cargos:
+                        new_order.cargos.append(item["cargo"])
+
+                    # Обновляем машину
+                    vehicle.status = "busy"
+                    used_vehicles.add(vehicle.id)
+
+                    assignments.append({
+                        "vehicle": vehicle.garage_number,
+                        "driver": vehicle.driver,
+                        "cargos_count": len(vehicle_cargos),
+                        "new_order_id": new_order.id,
+                        "load_percentage": round((1 - remaining_capacity / vehicle.capacity) * 100, 1),
+                        "source_orders": list(set(item["source_order_id"] for item in vehicle_cargos))
+                    })
+
+                    app.logger.info(f"Машина {vehicle.garage_number} загружена на {assignments[-1]['load_percentage']}% ({len(vehicle_cargos)} грузов)")
+
+                vehicle_index += 1
+
+        # Шаг 6: Удаляем исходные заявки, если все их грузы распределены
+        orders_to_delete = []
+        for order in new_orders:
+            # Проверяем, все ли грузы заявки были распределены
+            order_cargo_ids = {c.id for c in order.cargos}
+            if order_cargo_ids.issubset(processed_cargo_ids):
+                orders_to_delete.append(order)
+
+        for order in orders_to_delete:
+            db.session.delete(order)
+            app.logger.info(f"Удалена исходная заявка #{order.id}")
+
+        # Шаг 7: Если остались нераспределенные грузы, создаем новую заявку
+        if cargo_items:
+            app.logger.warning(f"Осталось нераспределенных грузов: {len(cargo_items)}")
+            # Можно создать новую заявку без машины или оставить в существующих
+
+        db.session.commit()
+
+        app.logger.info("=== РАСПРЕДЕЛЕНИЕ ЗАВЕРШЕНО ===")
+
+        return jsonify({
+            "message": "Оптимизированное распределение завершено",
             "assignments": assignments,
             "statistics": {
-                "orders_processed": len(new_orders),
+                "total_cargos": len(all_cargos),
+                "cargos_distributed": len(processed_cargo_ids),
                 "vehicles_used": len(used_vehicles),
-                "directions_covered": len(orders_by_direction)
+                "original_orders_deleted": len(orders_to_delete),
+                "remaining_cargos": len(cargo_items) if 'cargo_items' in locals() else 0
             }
         })
 
     except Exception as e:
         db.session.rollback()
+        app.logger.error(f"Ошибка распределения: {str(e)}", exc_info=True)
         return jsonify({"error": f"Ошибка распределения: {str(e)}"}), 500
+
+def cluster_orders_by_location(orders):
+    """
+    Группирует заявки по географическим кластерам
+    """
+    clusters = {}
+
+    for order in orders:
+        if not order.cargos:
+            continue
+
+        # Определяем основной пункт назначения (самый частый)
+        destinations = [cargo.destination for cargo in order.cargos]
+        if not destinations:
+            continue
+
+        main_destination = max(set(destinations), key=destinations.count)
+
+        # Создаем ключ кластера на основе пункта назначения
+        # В реальной системе здесь можно использовать геокодирование
+        cluster_key = main_destination
+
+        if cluster_key not in clusters:
+            clusters[cluster_key] = []
+
+        clusters[cluster_key].append(order)
+
+    return clusters
+
+
+
+
+def calculate_efficiency_metric(assignments, free_vehicles):
+    """
+    Рассчитывает метрику эффективности распределения
+    """
+    if not assignments:
+        return 0
+
+    total_capacity_used = sum(
+        a.get("used_capacity_percent", 0)
+        for a in assignments
+    )
+
+    total_vehicles = len(free_vehicles)
+
+    if total_vehicles == 0:
+        return 0
+
+    efficiency = (total_capacity_used / len(assignments)) if assignments else 0
+    vehicle_utilization = (len(assignments) / total_vehicles) * 100 if total_vehicles > 0 else 0
+
+    return {
+        "average_load_percent": round(efficiency, 1),
+        "vehicle_utilization_percent": round(vehicle_utilization, 1),
+        "assignments_per_vehicle": round(len(assignments) / total_vehicles, 2) if total_vehicles > 0 else 0
+    }
 
 
 def get_status_text(status):
@@ -1298,6 +1550,38 @@ def get_status_text(status):
     elif status == "completed":
         return "Завершена"
     return status
+
+
+@app.route("/orders/cleanup", methods=["POST"])
+@login_required
+@role_required("admin")
+def cleanup_empty_orders():
+    """
+    Очистка пустых заявок
+    """
+    try:
+        # Находим все новые заявки без грузов
+        empty_orders = Order.query.filter_by(status="new").filter(
+            ~Order.cargos.any()
+        ).all()
+
+        count = len(empty_orders)
+
+        for order in empty_orders:
+            db.session.delete(order)
+
+        db.session.commit()
+
+        return jsonify({
+            "message": f"Удалено {count} пустых заявок",
+            "empty_orders_deleted": count
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Ошибка очистки: {str(e)}"}), 500
+
+
 
 @app.route("/export_orders")
 def export_orders():
@@ -2258,6 +2542,118 @@ def merge_orders():
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": f"Ошибка объединения: {str(e)}"}), 500
+
+
+@app.route("/orders/group_by_route", methods=["POST"])
+@login_required
+@role_required("admin")
+def group_orders_by_route():
+    """
+    Группировка заявок по оптимальным маршрутам
+    """
+    try:
+        orders = Order.query.filter_by(status="new").all()
+
+        # Создаем граф маршрутов
+        route_graph = {}
+
+        for order in orders:
+            for cargo in order.cargos:
+                route = f"{cargo.departure}→{cargo.destination}"
+                if route not in route_graph:
+                    route_graph[route] = {
+                        "orders": set(),
+                        "total_weight": 0,
+                        "total_volume": 0,
+                        "cargos": []
+                    }
+
+                route_graph[route]["orders"].add(order.id)
+                route_graph[route]["total_weight"] += cargo.weight * cargo.quantity
+
+                if cargo.cargo_type == "dimensions":
+                    volume = cargo.length * cargo.width * cargo.height * cargo.quantity
+                else:
+                    volume = cargo.volume * cargo.quantity if cargo.volume else 0
+
+                route_graph[route]["total_volume"] += volume
+                route_graph[route]["cargos"].append(cargo)
+
+        # Оптимизируем: объединяем короткие маршруты в более длинные
+        optimized_routes = optimize_routes(route_graph)
+
+        return jsonify({
+            "route_analysis": optimized_routes,
+            "suggestions": generate_route_suggestions(optimized_routes)
+        })
+
+    except Exception as e:
+        return jsonify({"error": f"Ошибка анализа маршрутов: {str(e)}"}), 500
+
+
+def optimize_routes(route_graph):
+    """
+    Оптимизация маршрутов для минимизации пустого пробега
+    """
+    optimized = []
+
+    # Преобразуем в список для сортировки
+    routes_list = [
+        {
+            "route": route,
+            "data": data,
+            "efficiency": data["total_weight"] / (len(data["cargos"]) + 1)  # простая метрика
+        }
+        for route, data in route_graph.items()
+    ]
+
+    # Сортируем по эффективности
+    routes_list.sort(key=lambda x: x["efficiency"], reverse=True)
+
+    # Группируем смежные маршруты
+    i = 0
+    while i < len(routes_list):
+        current = routes_list[i]
+        group = [current]
+
+        # Ищем маршруты с общими точками
+        j = i + 1
+        while j < len(routes_list):
+            next_route = routes_list[j]
+
+            # Проверяем, можно ли объединить маршруты
+            if can_combine_routes(current["route"], next_route["route"]):
+                group.append(next_route)
+                routes_list.pop(j)
+            else:
+                j += 1
+
+        optimized.append({
+            "route_group": [g["route"] for g in group],
+            "total_orders": len(set().union(*[g["data"]["orders"] for g in group])),
+            "total_weight": sum(g["data"]["total_weight"] for g in group),
+            "total_volume": sum(g["data"]["total_volume"] for g in group),
+            "efficiency_score": sum(g["efficiency"] for g in group) / len(group)
+        })
+
+        i += 1
+
+    return optimized
+
+
+def can_combine_routes(route1, route2):
+    """
+    Проверяет, можно ли объединить два маршрута
+    """
+    dep1, dest1 = route1.split("→")
+    dep2, dest2 = route2.split("→")
+
+    # Маршруты можно объединить если:
+    # 1. Конец первого совпадает с началом второго
+    # 2. Или они имеют общую точку
+    return dest1 == dep2 or dep1 == dest2 or dest1 == dest2 or dep1 == dep2
+
+
 
 
 @app.route("/orders/<int:order_id>/split", methods=["POST"])
