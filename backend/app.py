@@ -694,7 +694,7 @@ def get_order_by_id(order_id):
 @app.route("/orders", methods=["POST"])
 @login_required
 def add_order():
-    local_tz = timezone(timedelta(hours=3))
+    local_tz = timezone(timedelta(hours=8))
     now_local = datetime.now(local_tz)
 
     if now_local.time() >= time(18, 0):
@@ -3373,8 +3373,6 @@ def get_trips_stats():
 if __name__ == "__main__":
     with app.app_context():
         if not User.query.first():
-            user = User(username="user", password=generate_password_hash("sazwork205"), role="user")
-            admin = User(username="admin", password=generate_password_hash("sazadmin2025"), role="admin")
             db.session.add(user)
             db.session.add(admin)
             db.session.commit()
