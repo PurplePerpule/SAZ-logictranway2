@@ -3165,74 +3165,73 @@ def check_order_deadlines():
 @app.route("/trips", methods=["GET"])
 @login_required
 def get_trips():
-    """Получение всех рейсов с фильтрацией"""
-    # Фильтры из запроса
     date_from = request.args.get('date_from')
     date_to = request.args.get('date_to')
     vehicle_id = request.args.get('vehicle_id')
     driver = request.args.get('driver')
     status = request.args.get('status')
 
-    # Начинаем запрос
-    query = Trip.query.join(Order, Trip.order_id == Order.id).join(Vehicle, Order.vehicle_id == Vehicle.id)
+    query = Trip.query.join(Order, Trip.order_id == Order.id) \
+                      .outerjoin(Vehicle, Trip.vehicle_id == Vehicle.id)
 
     if current_user.role != "admin":
         query = query.filter(Order.user_id == current_user.id)
 
-    # Применяем фильтры
+    # Фильтры
     if date_from:
         try:
             date_from_obj = datetime.fromisoformat(date_from.replace('Z', '+00:00'))
             query = query.filter(Trip.started_at >= date_from_obj)
         except:
             pass
-
     if date_to:
         try:
             date_to_obj = datetime.fromisoformat(date_to.replace('Z', '+00:00'))
             query = query.filter(Trip.started_at <= date_to_obj)
         except:
             pass
-
     if vehicle_id:
-        query = query.filter(Vehicle.id == vehicle_id)
-
+        query = query.filter(Trip.vehicle_id == vehicle_id)
     if driver:
         query = query.filter(Vehicle.driver.ilike(f'%{driver}%'))
-
     if status:
         query = query.filter(Trip.status == status)
 
-    # Сортировка по дате начала (новые сверху)
     trips = query.order_by(Trip.started_at.desc()).all()
 
-    # Преобразуем в словари с подробной информацией
     trips_data = []
     for trip in trips:
         trip_dict = trip.to_dict()
-
-        # Добавляем информацию о заказе
         order = Order.query.get(trip.order_id)
         if order:
             trip_dict['order'] = order.to_dict()
+            vehicle = trip.vehicle if trip.vehicle else order.vehicle
+            trip_dict['vehicle'] = vehicle.to_dict() if vehicle else None
 
-            # Добавляем информацию о машине
-            if order.vehicle:
-                trip_dict['vehicle'] = order.vehicle.to_dict()
-
-            # Добавляем статистику по грузам
             if order.cargos:
-                total_weight = sum(c.weight * c.quantity for c in order.cargos)
-                total_volume = sum(c.length * c.width * c.height * c.quantity for c in order.cargos)
-                cargo_count = len(order.cargos)
+                total_weight = 0.0
+                total_volume = 0.0
+                routes = set()
+                for c in order.cargos:
+                    # Вес
+                    total_weight += (c.weight or 0) * (c.quantity or 1)
+
+                    # Объём
+                    if c.cargo_type == 'dimensions' and c.length and c.width and c.height:
+                        total_volume += c.length * c.width * c.height * (c.quantity or 1)
+                    elif c.cargo_type == 'volume' and c.volume:
+                        total_volume += c.volume * (c.quantity or 1)
+
+                    # Маршрут
+                    if c.departure and c.destination:
+                        routes.add(f"{c.departure} → {c.destination}")
 
                 trip_dict['cargo_stats'] = {
-                    'total_weight': total_weight,
-                    'total_volume': total_volume,
-                    'cargo_count': cargo_count,
-                    'routes': list(set(f"{c.departure} → {c.destination}" for c in order.cargos))
+                    'total_weight': round(total_weight, 2),
+                    'total_volume': round(total_volume, 2),
+                    'cargo_count': len(order.cargos),
+                    'routes': list(routes)
                 }
-
         trips_data.append(trip_dict)
 
     return jsonify(trips_data)
@@ -3270,38 +3269,40 @@ def complete_trip(trip_id):
 @app.route("/trips/<int:trip_id>", methods=["GET"])
 @login_required
 def get_trip_by_id(trip_id):
-    """Получение данных конкретного рейса по ID"""
     trip = Trip.query.get_or_404(trip_id)
 
-    # Проверяем права доступа
     if current_user.role != "admin":
-        # Пользователь может видеть только свои рейсы
         order = Order.query.get(trip.order_id)
         if order and order.user_id != current_user.id:
             return jsonify({"error": "Доступ запрещён"}), 403
 
     trip_dict = trip.to_dict()
-
-    # Добавляем информацию о заказе
     order = Order.query.get(trip.order_id)
     if order:
         trip_dict['order'] = order.to_dict()
+        vehicle = trip.vehicle if trip.vehicle else order.vehicle
+        trip_dict['vehicle'] = vehicle.to_dict() if vehicle else None
 
-        # Добавляем информацию о машине
-        if order.vehicle:
-            trip_dict['vehicle'] = order.vehicle.to_dict()
-
-        # Добавляем статистику по грузам
         if order.cargos:
-            total_weight = sum(c.weight * c.quantity for c in order.cargos)
-            total_volume = sum(c.length * c.width * c.height * c.quantity for c in order.cargos)
-            cargo_count = len(order.cargos)
+            total_weight = 0.0
+            total_volume = 0.0
+            routes = set()
+            for c in order.cargos:
+                total_weight += (c.weight or 0) * (c.quantity or 1)
+
+                if c.cargo_type == 'dimensions' and c.length and c.width and c.height:
+                    total_volume += c.length * c.width * c.height * (c.quantity or 1)
+                elif c.cargo_type == 'volume' and c.volume:
+                    total_volume += c.volume * (c.quantity or 1)
+
+                if c.departure and c.destination:
+                    routes.add(f"{c.departure} → {c.destination}")
 
             trip_dict['cargo_stats'] = {
-                'total_weight': total_weight,
-                'total_volume': total_volume,
-                'cargo_count': cargo_count,
-                'routes': list(set(f"{c.departure} → {c.destination}" for c in order.cargos))
+                'total_weight': round(total_weight, 2),
+                'total_volume': round(total_volume, 2),
+                'cargo_count': len(order.cargos),
+                'routes': list(routes)
             }
 
     return jsonify(trip_dict)
