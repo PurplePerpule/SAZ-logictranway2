@@ -549,6 +549,52 @@ def get_vehicle_by_id(vehicle_id):
     vehicle = Vehicle.query.get_or_404(vehicle_id)
     return jsonify(vehicle.to_dict())
 
+
+@app.route("/vehicles/bulk_update", methods=["POST"])
+@login_required
+@role_required("admin")
+def bulk_update_vehicles_status():
+    """
+    Массовое обновление статусов машин
+    Ожидает JSON: {"vehicle_ids": [1,2,3], "status": "free"}
+    """
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Нет данных"}), 400
+
+    vehicle_ids = data.get("vehicle_ids", [])
+    new_status = data.get("status")
+
+    if not vehicle_ids or not new_status:
+        return jsonify({"error": "Не указаны ID машин или новый статус"}), 400
+
+    if new_status not in ["free", "busy", "in_repair"]:
+        return jsonify({"error": "Недопустимый статус"}), 400
+
+    updated = 0
+    errors = []
+
+    for vid in vehicle_ids:
+        vehicle = Vehicle.query.get(vid)
+        if not vehicle:
+            errors.append(f"Машина с ID {vid} не найдена")
+            continue
+
+        # Небольшая проверка: если машина занята (busy) и мы пытаемся перевести её в free,
+        # можно выдать предупреждение, но разрешить (администратор может принудительно освободить).
+        # Однако если она в рейсе, возможно, стоит блокировать, но для простоты разрешим.
+        vehicle.status = new_status
+        updated += 1
+
+    if updated > 0:
+        db.session.commit()
+
+    return jsonify({
+        "message": f"Обновлено {updated} машин",
+        "updated": updated,
+        "errors": errors
+    })
+
 @app.route("/vehicles", methods=["POST"])
 def add_vehicle():
     data = request.get_json()
@@ -694,7 +740,7 @@ def get_order_by_id(order_id):
 @app.route("/orders", methods=["POST"])
 @login_required
 def add_order():
-    local_tz = timezone(timedelta(hours=8))
+    local_tz = timezone(timedelta(hours=3))
     now_local = datetime.now(local_tz)
 
     if now_local.time() >= time(18, 0):

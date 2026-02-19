@@ -9,6 +9,7 @@ let currentHistoryFilters = {};
 let myMap = null;
 let currentLocations = [];
 let locationSearchTimeout = null;
+let selectedVehicles = [];
 
 function showLoader() {
   const loader = document.getElementById("loader");
@@ -653,6 +654,100 @@ function toggleAllOrders(checkbox) {
   updateSelection();
 }
 
+function updateVehicleSelection() {
+  const checkboxes = document.querySelectorAll(".vehicle-checkbox:checked");
+  selectedVehicles = Array.from(checkboxes).map((cb) => parseInt(cb.value));
+  document.getElementById("selectedVehiclesCount").textContent =
+    `${selectedVehicles.length} выбрано`;
+
+  // Обновляем состояние чекбокса "Выбрать все"
+  const selectAll = document.getElementById("selectAllVehicles");
+  if (selectAll) {
+    const total = document.querySelectorAll(".vehicle-checkbox").length;
+    if (selectedVehicles.length === 0) {
+      selectAll.checked = false;
+      selectAll.indeterminate = false;
+    } else if (selectedVehicles.length === total) {
+      selectAll.checked = true;
+      selectAll.indeterminate = false;
+    } else {
+      selectAll.indeterminate = true;
+    }
+  }
+}
+
+// Вспомогательная функция для получения текста статуса (можно использовать существующую getStatusText, но она для заявок)
+function getVehicleStatusText(status) {
+  const map = {
+    free: "Свободна",
+    busy: "Занята",
+    in_repair: "В ремонте",
+  };
+  return map[status] || status;
+}
+
+// Функция массового изменения статуса
+async function bulkUpdateVehicleStatus() {
+  if (selectedVehicles.length === 0) {
+    alert("Выберите хотя бы одну машину");
+    return;
+  }
+
+  const newStatus = document.getElementById("bulkVehicleNewStatus").value;
+  if (!newStatus) {
+    alert("Выберите новый статус");
+    return;
+  }
+
+  // Подтверждение с предупреждением о возможных последствиях
+  if (
+    !confirm(
+      `Изменить статус для ${selectedVehicles.length} машин на "${getStatusText(newStatus)}"?`,
+    )
+  ) {
+    return;
+  }
+
+  try {
+    const response = await fetch(`${API}/vehicles/bulk_update`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${localStorage.getItem("token")}`,
+      },
+      body: JSON.stringify({
+        vehicle_ids: selectedVehicles,
+        status: newStatus,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || "Ошибка при массовом обновлении");
+    }
+
+    const result = await response.json();
+    alert(`Статус обновлён для ${result.updated} машин`);
+
+    // Перезагружаем список машин и сбрасываем выделение
+    loadVehicles();
+    selectedVehicles = [];
+    updateVehicleSelection();
+    if (document.getElementById("selectAllVehicles")) {
+      document.getElementById("selectAllVehicles").checked = false;
+    }
+  } catch (error) {
+    console.error("Ошибка массового обновления статусов:", error);
+    alert("Не удалось обновить статусы: " + error.message);
+  }
+}
+
+function toggleAllVehicles(checkbox) {
+  const checkboxes = document.querySelectorAll(".vehicle-checkbox");
+  checkboxes.forEach((cb) => (cb.checked = checkbox.checked));
+  updateVehicleSelection();
+}
+
 function updateSelection() {
   const checkboxes = document.querySelectorAll(".order-checkbox:checked");
   selectedOrders = Array.from(checkboxes).map((cb) => parseInt(cb.value));
@@ -1156,6 +1251,12 @@ async function loadVehicles() {
     });
     const vehicles = await res.json();
     renderVehicles(vehicles);
+    // Сбрасываем выделение после загрузки
+    selectedVehicles = [];
+    updateVehicleSelection();
+    if (document.getElementById("selectAllVehicles")) {
+      document.getElementById("selectAllVehicles").checked = false;
+    }
   } catch (err) {
     console.error(err);
   }
@@ -1252,19 +1353,21 @@ function renderVehicles(vehicles) {
 
   vehicles.forEach((v) => {
     const tr = document.createElement("tr");
+    // Добавляем чекбокс в первую ячейку
     tr.innerHTML = `
-      <td>${v.garage_number}</td>
-      <td>${v.brand}</td>
-      <td>${v.driver}</td>
-      <td>${v.tent_type === "open" ? "Открытый" : "Закрытый"}</td>
-      <td><span class="status-badge ${v.status === "free" ? "status-free" : v.status === "in_repair" ? "status-repair" : "status-busy"}">
-        ${v.status === "free" ? "Свободна" : v.status === "in_repair" ? "В ремонте" : "Занята"}
-      </span></td>
-    `;
+            <td><input type="checkbox" class="vehicle-checkbox" value="${v.id}" onchange="updateVehicleSelection()"></td>
+            <td>${v.garage_number}</td>
+            <td>${v.brand}</td>
+            <td>${v.driver}</td>
+            <td>${v.tent_type === "open" ? "Открытый" : "Закрытый"}</td>
+            <td><span class="status-badge ${v.status === "free" ? "status-free" : v.status === "in_repair" ? "status-repair" : "status-busy"}">
+                ${v.status === "free" ? "Свободна" : v.status === "in_repair" ? "В ремонте" : "Занята"}
+            </span></td>
+        `;
     tbody.appendChild(tr);
   });
 
-  // Заполняем селекты
+  // Заполняем селекты (как и раньше)
   ["vehicleStatusSelect", "trackingVehicleSelect"].forEach((id) => {
     const sel = document.getElementById(id);
     if (!sel) return;

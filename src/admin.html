@@ -274,9 +274,55 @@
             </div>
         </div>
 
+        <!-- Вкладка Машины -->
         <div id="vehicles" class="tab">
             <h2>Все машины</h2>
 
+            <!-- Блок массового изменения статуса -->
+            <div
+                style="
+                    margin: 10px 0;
+                    padding: 10px;
+                    background: #e8f4fd;
+                    border-radius: 5px;
+                "
+            >
+                <div
+                    style="
+                        display: flex;
+                        align-items: center;
+                        gap: 15px;
+                        flex-wrap: wrap;
+                    "
+                >
+                    <div>
+                        <input
+                            type="checkbox"
+                            id="selectAllVehicles"
+                            onchange="toggleAllVehicles(this)"
+                        />
+                        <label for="selectAllVehicles">Выбрать все</label>
+                        <span id="selectedVehiclesCount">0 выбрано</span>
+                    </div>
+                    <div>
+                        <label>Новый статус:</label>
+                        <select id="bulkVehicleNewStatus">
+                            <option value="free">Свободна</option>
+                            <option value="busy">Занята</option>
+                            <option value="in_repair">В ремонте</option>
+                        </select>
+                        <button
+                            class="btn"
+                            onclick="bulkUpdateVehicleStatus()"
+                            style="background: #2196f3"
+                        >
+                            Применить к выбранным
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Существующий блок для изменения статуса одной машины (оставляем для обратной совместимости) -->
             <div class="vehicle-controls" style="margin: 10px 0">
                 <label>Машина:</label>
                 <select
@@ -293,9 +339,12 @@
                     Применить
                 </button>
             </div>
+
+            <!-- Таблица машин с чекбоксами -->
             <table id="vehiclesTable">
                 <thead>
                     <tr>
+                        <th style="width: 30px">✓</th>
                         <th>Гараж</th>
                         <th>Марка</th>
                         <th>Водитель</th>
