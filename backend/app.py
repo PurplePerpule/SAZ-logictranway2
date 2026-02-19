@@ -11,10 +11,13 @@ from io import BytesIO
 from openpyxl.workbook.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 from threading import Thread
+from collections import defaultdict
+from math import radians, sin, cos, sqrt, atan2
+
 
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 import pdfkit
-
+import requests
 import os
 
 
@@ -31,6 +34,7 @@ CORS(app,
      allow_headers=["Content-Type", "Authorization"],
      methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 
+YANDEX_GEOCODER_API_KEY = "28cae7bd-c3b7-4145-94bb-923d2ab7c54e"
 
 app.config["SECRET_KEY"] = "c639183901c409352be3d01c521c7694"
 
@@ -271,6 +275,8 @@ class Location(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.now(timezone.utc),
                           onupdate=datetime.now(timezone.utc))
     created_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    latitude = db.Column(db.Float, nullable=True)
+    longitude = db.Column(db.Float, nullable=True)
 
     def to_dict(self):
         return {
@@ -2858,9 +2864,14 @@ def add_location():
     if not data.get('address'):
         return jsonify({"error": "Адрес обязателен"}), 400
 
+    coords = geocode_address(data['address'])
+    latitude, longitude = coords if coords else (None, None)
+
     location = Location(
         company_name=data.get('company_name', ''),
         address=data['address'],
+        latitude=latitude,
+        longitude=longitude,
         is_departure=data.get('is_departure', True),
         is_destination=data.get('is_destination', True),
         contact_person=data.get('contact_person'),
@@ -3415,7 +3426,137 @@ def get_trips_stats():
         ]
     })
 
+def geocode_address(address):
+    """Возвращает (lat, lon) для заданного адреса или None."""
+    try:
+        url = "https://geocode-maps.yandex.ru/1.x/"
+        params = {
+            "apikey": YANDEX_GEOCODER_API_KEY,
+            "geocode": address,
+            "format": "json",
+            "results": 1
+        }
+        resp = requests.get(url, params=params, timeout=5)
+        data = resp.json()
+        feature_member = data["response"]["GeoObjectCollection"]["featureMember"]
+        if not feature_member:
+            return None
+        pos = feature_member[0]["GeoObject"]["Point"]["pos"]
+        lon, lat = map(float, pos.split())
+        return lat, lon
+    except Exception as e:
+        app.logger.error(f"Geocoding error for {address}: {e}")
+        return None
 
+def haversine(lat1, lon1, lat2, lon2):
+    """Расстояние в км между двумя точками на сфере по формуле гаверсинуса."""
+    R = 6371  # радиус Земли в км
+    dlat = radians(lat2 - lat1)
+    dlon = radians(lon2 - lon1)
+    a = sin(dlat/2)**2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon/2)**2
+    c = 2 * atan2(sqrt(a), sqrt(1-a))
+    return R * c
+
+def build_optimized_route(order):
+    """
+    Возвращает список остановок в оптимальном порядке.
+    Каждая остановка: {
+        'address': str,
+        'type': 'pickup' or 'delivery',
+        'cargos': [cargo_dict, ...],
+        'lat': float,
+        'lon': float
+    }
+    """
+    # Собираем все грузы
+    cargos = list(order.cargos)
+
+    # Группируем грузы по адресам отправления и назначения
+    pickups = defaultdict(list)   # адрес -> список грузов (которые отсюда забирают)
+    deliveries = defaultdict(list) # адрес -> список грузов (которые сюда доставляют)
+
+    for cargo in cargos:
+        pickups[cargo.departure].append(cargo)
+        deliveries[cargo.destination].append(cargo)
+
+    # Получаем координаты для каждого уникального адреса из таблицы Location
+    addresses = set(pickups.keys()) | set(deliveries.keys())
+    location_cache = {}
+    for addr in addresses:
+        loc = Location.query.filter_by(address=addr).first()
+        if loc and loc.latitude and loc.longitude:
+            location_cache[addr] = (loc.latitude, loc.longitude)
+        else:
+            # Если координат нет, пытаемся геокодировать сейчас (или пропускаем с предупреждением)
+            coords = geocode_address(addr)
+            if coords:
+                location_cache[addr] = coords
+                # Можно сохранить в БЗ для будущих запросов (опционально)
+            else:
+                app.logger.warning(f"Не удалось получить координаты для адреса: {addr}")
+                # Задаём фиктивные координаты, чтобы алгоритм не сломался (например, 0,0)
+                location_cache[addr] = (0.0, 0.0)
+
+    # Функция для вычисления расстояния между двумя адресами
+    def distance(addr1, addr2):
+        lat1, lon1 = location_cache.get(addr1, (0,0))
+        lat2, lon2 = location_cache.get(addr2, (0,0))
+        return haversine(lat1, lon1, lat2, lon2)
+
+    # --- Построение последовательности ---
+    # Начальная точка – первый адрес отправления (можно выбрать ближайший к базе, но для простоты возьмём первый)
+    if not pickups:
+        return []
+
+    pickup_addresses = list(pickups.keys())
+    delivery_addresses = list(deliveries.keys())
+
+    # Простейшая эвристика: сначала все pickup точки в порядке ближайшего соседа,
+    # затем все delivery точки в порядке ближайшего соседа от последней pickup точки.
+    route = []
+
+    # 1. Выбираем стартовую точку – первый pickup (можно улучшить, начав с базы, если она известна)
+    current = pickup_addresses[0]
+    unvisited_pickups = set(pickup_addresses)
+    unvisited_pickups.remove(current)
+
+    # Добавляем текущую точку как первую остановку
+    route.append({
+        'address': current,
+        'type': 'pickup',
+        'cargos': [c.to_dict() for c in pickups[current]],
+        'lat': location_cache[current][0],
+        'lon': location_cache[current][1]
+    })
+
+    # Посещаем остальные pickup точки по принципу ближайшего соседа
+    while unvisited_pickups:
+        nearest = min(unvisited_pickups, key=lambda a: distance(current, a))
+        unvisited_pickups.remove(nearest)
+        route.append({
+            'address': nearest,
+            'type': 'pickup',
+            'cargos': [c.to_dict() for c in pickups[nearest]],
+            'lat': location_cache[nearest][0],
+            'lon': location_cache[nearest][1]
+        })
+        current = nearest
+
+    # Теперь посещаем delivery точки
+    unvisited_deliveries = set(delivery_addresses)
+    while unvisited_deliveries:
+        nearest = min(unvisited_deliveries, key=lambda a: distance(current, a))
+        unvisited_deliveries.remove(nearest)
+        route.append({
+            'address': nearest,
+            'type': 'delivery',
+            'cargos': [c.to_dict() for c in deliveries[nearest]],
+            'lat': location_cache[nearest][0],
+            'lon': location_cache[nearest][1]
+        })
+        current = nearest
+
+    return route
 
 if __name__ == "__main__":
     with app.app_context():
