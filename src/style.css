@@ -897,3 +897,7 @@ input[type="time"] {
 .w-100 {
     width: 100%;
 }
+
+.leaflet-control-attribution span {
+    display: none !important;
+}
