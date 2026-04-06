@@ -1,5 +1,5 @@
 from itertools import permutations
-from datetime import datetime, timezone, timedelta, time
+
 from flask import Flask, jsonify, request, send_file, make_response, session
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
@@ -18,6 +18,7 @@ from math import radians, sin, cos, sqrt, atan2
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 import pdfkit
 import requests
+from datetime import datetime, timezone, timedelta, time as dt_time
 import os
 
 
@@ -33,8 +34,6 @@ CORS(app,
      ],
      allow_headers=["Content-Type", "Authorization"],
      methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
-
-YANDEX_GEOCODER_API_KEY = "28cae7bd-c3b7-4145-94bb-923d2ab7c54e"
 
 app.config["SECRET_KEY"] = "c639183901c409352be3d01c521c7694"
 
@@ -749,7 +748,7 @@ def add_order():
     local_tz = timezone(timedelta(hours=3))
     now_local = datetime.now(local_tz)
 
-    if now_local.time() >= time(18, 0):
+    if now_local.time() >= dt_time(18, 0):
         return jsonify({
             "error": "Заявки принимаются только до 12:30. "
                      "Пожалуйста, отправьте заявку завтра до 12:30."
@@ -3426,24 +3425,62 @@ def get_trips_stats():
         ]
     })
 
+
+@app.route("/geocode", methods=["GET"])
+@login_required
+def geocode():
+    """Получить координаты адреса через геокодер"""
+    address = request.args.get("address")
+    if not address:
+        return jsonify({"error": "Address required"}), 400
+
+    # Сначала ищем в базе
+    location = Location.query.filter_by(address=address).first()
+    if location and location.latitude and location.longitude:
+        return jsonify({"lat": location.latitude, "lon": location.longitude})
+
+    # Если нет – геокодируем через Nominatim
+    coords = geocode_address(address)
+    if coords:
+        lat, lon = coords
+        # Сохраняем в базу для будущих запросов (опционально)
+        if not location:
+            # Создаём запись с адресом и координатами
+            loc = Location(
+                address=address,
+                latitude=lat,
+                longitude=lon,
+                company_name=address[:200],
+                created_by=current_user.id
+            )
+            db.session.add(loc)
+            db.session.commit()
+        return jsonify({"lat": lat, "lon": lon})
+    else:
+        return jsonify({"error": "Address not found"}), 404
+
 def geocode_address(address):
-    """Возвращает (lat, lon) для заданного адреса или None."""
+    """
+    Преобразует адрес в координаты (lat, lon) через Nominatim.
+    Возвращает (lat, lon) или None.
+    """
     try:
-        url = "https://geocode-maps.yandex.ru/1.x/"
+        url = "https://nominatim.openstreetmap.org/search"
         params = {
-            "apikey": YANDEX_GEOCODER_API_KEY,
-            "geocode": address,
+            "q": address,
             "format": "json",
-            "results": 1
+            "limit": 1
         }
-        resp = requests.get(url, params=params, timeout=5)
+        headers = {
+            "User-Agent": "SAZLogicTranway/1.0 (gakut.d123@gmail.com)"  # Замените на свои данные
+        }
+        resp = requests.get(url, params=params, headers=headers, timeout=5)
         data = resp.json()
-        feature_member = data["response"]["GeoObjectCollection"]["featureMember"]
-        if not feature_member:
-            return None
-        pos = feature_member[0]["GeoObject"]["Point"]["pos"]
-        lon, lat = map(float, pos.split())
-        return lat, lon
+        if data:
+            lat = float(data[0]["lat"])
+            lon = float(data[0]["lon"])
+            return lat, lon
+        return None
     except Exception as e:
         app.logger.error(f"Geocoding error for {address}: {e}")
         return None

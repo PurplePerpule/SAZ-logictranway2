@@ -1702,34 +1702,6 @@ async function assignVehicle() {
   }
 }
 
-ymaps.ready(() => {
-  myMap = new ymaps.Map("map", { center: [53.9, 27.56], zoom: 10 });
-
-  window.trackingShowRoute = async function () {
-    if (!myMap) return;
-    myMap.geoObjects.removeAll();
-    const sel = document.getElementById("trackingVehicleSelect");
-    if (!sel?.value) return alert("Выберите машину");
-
-    const vehicleId = +sel.value;
-    const orders = await fetch(`${API}/orders`).then((r) => r.json());
-    const active = orders.filter(
-      (o) => o.status === "assigned" && o.vehicle?.id === vehicleId,
-    );
-
-    if (!active.length)
-      return alert("Для выбранной машины нет активного рейса");
-
-    for (const o of active) {
-      const points = o.cargos.flatMap((c) => [c.departure, c.destination]);
-      if (points.length)
-        await ymaps.route(points).then((route) => myMap.geoObjects.add(route));
-    }
-  };
-
-  window.trackingClear = () => myMap?.geoObjects.removeAll();
-});
-
 async function completeOrder(orderId) {
   if (!confirm("Завершить рейс и освободить машину?")) return;
   const res = await fetch(`${API}/orders/${orderId}/complete`, {
@@ -1909,6 +1881,82 @@ async function deleteOrder(orderId) {
   }
 }
 
+async function trackingShowRoute() {
+  if (!myMap) return;
+  // Удаляем предыдущие маршруты (если есть)
+  myMap.eachLayer((layer) => {
+    if (layer instanceof L.Routing.Control) myMap.removeControl(layer);
+  });
+
+  const sel = document.getElementById("trackingVehicleSelect");
+  if (!sel?.value) return alert("Выберите машину");
+
+  const vehicleId = +sel.value;
+  const orders = await fetch(`${API}/orders`).then((r) => r.json());
+  const active = orders.filter(
+    (o) => o.status === "assigned" && o.vehicle?.id === vehicleId,
+  );
+
+  if (!active.length) return alert("Для выбранной машины нет активного рейса");
+
+  // Собираем все точки маршрута: начальная точка (первый адрес отправления) и все адреса доставки
+  const points = [];
+  for (const order of active) {
+    for (const cargo of order.cargos) {
+      // Добавляем только уникальные точки, чтобы маршрут был логичным
+      points.push(cargo.departure);
+      points.push(cargo.destination);
+    }
+  }
+  // Удаляем дубликаты, сохраняя порядок первого вхождения
+  const uniquePoints = [];
+  for (const p of points) {
+    if (!uniquePoints.includes(p)) uniquePoints.push(p);
+  }
+  if (uniquePoints.length === 0) return;
+
+  // Получаем координаты для каждой точки через серверный эндпоинт
+  const waypoints = [];
+  for (const addr of uniquePoints) {
+    const resp = await fetch(
+      `${API}/geocode?address=${encodeURIComponent(addr)}`,
+      {
+        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+      },
+    );
+    if (resp.ok) {
+      const data = await resp.json();
+      waypoints.push(L.latLng(data.lat, data.lon));
+    } else {
+      console.warn(`Не удалось геокодировать адрес: ${addr}`);
+    }
+  }
+
+  if (waypoints.length < 2) {
+    alert("Недостаточно точек для построения маршрута");
+    return;
+  }
+
+  // Строим маршрут
+  L.Routing.control({
+    waypoints: waypoints,
+    routeWhileDragging: false,
+    showAlternatives: false,
+    fitSelectedRoutes: true,
+    lineOptions: { styles: [{ color: "blue", weight: 5 }] },
+  }).addTo(myMap);
+}
+
+function trackingClear() {
+  if (myMap) {
+    myMap.eachLayer((layer) => {
+      if (layer instanceof L.Routing.Control) myMap.removeControl(layer);
+    });
+    // Сбрасываем вид на центр Минска
+    myMap.setView([53.9, 27.56], 10);
+  }
+}
+
 async function mergeOrders() {
   const selectedOrders = Array.from(
     document.querySelectorAll(".order-checkbox:checked"),
@@ -1993,11 +2041,6 @@ function showTab(tabId) {
       break;
     case "tracking":
       // Инициализируем карту если нужно
-      if (typeof ymaps !== "undefined" && !myMap) {
-        ymaps.ready(() => {
-          myMap = new ymaps.Map("map", { center: [53.9, 27.56], zoom: 10 });
-        });
-      }
       break;
     case "users":
       loadUsers();
@@ -2020,6 +2063,8 @@ async function exportToExcel() {
 }
 
 document.addEventListener("DOMContentLoaded", function () {
+  initMap();
+
   console.log("Админ-панель загружена");
 
   // Проверка авторизации
@@ -2348,6 +2393,13 @@ async function logout() {
     // Перенаправляем на страницу входа
     window.location.href = "/login.html";
   }
+}
+
+function initMap() {
+  myMap = L.map("map").setView([53.9, 27.56], 10);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: "© OpenStreetMap contributors",
+  }).addTo(myMap);
 }
 
 function initTabs() {

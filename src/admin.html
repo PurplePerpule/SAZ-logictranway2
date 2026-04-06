@@ -4,10 +4,17 @@
         <meta charset="UTF-8" />
         <title>Админка САЗа — realtime</title>
         <link rel="stylesheet" href="./style.css" />
-        <script
-            src="https://api-maps.yandex.ru/2.1/?apikey=28cae7bd-c3b7-4145-94bb-923d2ab7c54e&lang=ru_RU"
-            type="text/javascript"
-        ></script>
+        <link
+            rel="stylesheet"
+            href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        />
+        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+        <!-- Для построения маршрутов (может понадобиться плагин Leaflet Routing Machine) -->
+        <link
+            rel="stylesheet"
+            href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css"
+        />
+        <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     </head>
     <body>

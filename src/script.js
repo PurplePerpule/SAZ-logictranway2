@@ -1,5 +1,3 @@
-ymaps.ready(init);
-
 var myMap;
 
 let addressSearchTimeout = null;
@@ -7,6 +5,8 @@ let activeDropdown = null;
 
 // Проверка авторизации при загрузке страницы
 document.addEventListener("DOMContentLoaded", function () {
+  initMap();
+  loadCargos();
   const token = localStorage.getItem("token");
   if (!token) {
     window.location.href = "login.html";
@@ -40,12 +40,11 @@ document.addEventListener("DOMContentLoaded", function () {
   loadCargos();
 });
 
-function init() {
-  myMap = new ymaps.Map("map", {
-    center: [54.54, 26.38],
-    zoom: 10,
-  });
-  loadCargos();
+function initMap() {
+  myMap = L.map("map").setView([54.54, 26.38], 10);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: "© OpenStreetMap contributors",
+  }).addTo(myMap);
 }
 
 const API_URL = "";
@@ -85,47 +84,55 @@ async function loadCargos() {
 }
 
 async function buildRoute(cargos) {
-  myMap.geoObjects.removeAll();
+  if (!myMap) return;
+  myMap.eachLayer((layer) => {
+    if (layer instanceof L.Routing.Control) myMap.removeControl(layer);
+  });
   if (cargos.length === 0) return;
 
-  // 1. База — откуда выезжает машина (берём departure из первого груза)
+  // Базовая точка (отправление первого груза)
   const basePoint = cargos[0].departure;
-
-  // 2. Все точки доставки (destination)
+  // Точки доставки
   const deliveryPoints = cargos.map((c) => c.destination);
-
-  // 3. Формируем маршрут: база → все доставки → база
+  // Формируем маршрут: база -> все доставки -> база
   const points = [basePoint, ...deliveryPoints, basePoint];
 
-  try {
-    const multiRoute = new ymaps.multiRouter.MultiRoute(
+  // Удаляем дубликаты, сохраняя порядок
+  const uniquePoints = [];
+  for (const p of points) {
+    if (!uniquePoints.includes(p)) uniquePoints.push(p);
+  }
+
+  if (uniquePoints.length < 2) return;
+
+  const waypoints = [];
+  for (const addr of uniquePoints) {
+    const resp = await fetch(
+      `${API_URL}/geocode?address=${encodeURIComponent(addr)}`,
       {
-        referencePoints: points,
-        params: {
-          routingMode: "auto",
-          results: 1,
-        },
-      },
-      {
-        boundsAutoApply: true,
-        routeStrokeColor: "0000FF",
-        routeActiveStrokeColor: "FF0000",
-        wayPointStartIconColor: "#00FF00",
-        wayPointFinishIconColor: "#00FF00",
-        viaPointIconColor: "#FFFF00",
+        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
       },
     );
-
-    myMap.geoObjects.add(multiRoute);
-
-    // Подписываемся на успешное построение
-    multiRoute.model.events.add("requestsuccess", () => {
-      myMap.setBounds(myMap.geoObjects.getBounds(), { checkZoomRange: true });
-    });
-  } catch (err) {
-    console.error("Ошибка маршрута:", err);
-    alert("Не удалось построить маршрут. Проверьте адреса.");
+    if (resp.ok) {
+      const data = await resp.json();
+      waypoints.push(L.latLng(data.lat, data.lon));
+    } else {
+      console.warn(`Не удалось геокодировать адрес: ${addr}`);
+    }
   }
+
+  if (waypoints.length < 2) {
+    alert("Не удалось построить маршрут. Проверьте адреса.");
+    return;
+  }
+
+  L.Routing.control({
+    waypoints: waypoints,
+    routeWhileDragging: false,
+    showAlternatives: false,
+    fitSelectedRoutes: true,
+    lineOptions: { styles: [{ color: "blue", weight: 5 }] },
+  }).addTo(myMap);
 }
 
 async function sendOrderToDispatcher() {
@@ -199,7 +206,11 @@ async function sendOrderToDispatcher() {
     document.getElementById("cargo_type").value = "dimensions";
     toggleCargoType();
 
-    myMap.geoObjects.removeAll();
+    if (myMap) {
+      myMap.eachLayer((layer) => {
+        if (layer instanceof L.Routing.Control) myMap.removeControl(layer);
+      });
+    }
     updateCargoList([]);
     updateCargoCount(0);
 
@@ -225,7 +236,7 @@ async function pickCar() {
     alert("Добавьте хотя бы один груз в список.");
     return;
   }
-  await buildRoute();
+  await buildRoute(cargos);
   try {
     console.log("Sending cargos to match:", cargos);
     const response = await fetch(`${API_URL}/match`, {
@@ -261,7 +272,11 @@ function clearAll() {
   document.getElementById("department").value = "";
   document.getElementById("phone_number").value = "";
   document.getElementById("preferred_date").value = "";
-  myMap.geoObjects.removeAll();
+  if (myMap) {
+    myMap.eachLayer((layer) => {
+      if (layer instanceof L.Routing.Control) myMap.removeControl(layer);
+    });
+  }
   updateCargoList([]);
   updateCargoCount(0);
 
@@ -430,18 +445,18 @@ function showAddressDropdown(dropdown, results, inputElement) {
       dropdown.style.display = "none";
 
       // Можно дополнительно заполнить контактные данные
-      if (
-        result.contact_person &&
-        !document.getElementById("contact_person").value
-      ) {
-        document.getElementById("contact_person").value = result.contact_person;
-      }
-      if (
-        result.phone_number &&
-        !document.getElementById("contact_phone").value
-      ) {
-        document.getElementById("contact_phone").value = result.phone_number;
-      }
+      // if (
+      //   result.contact_person &&
+      //   !document.getElementById("contact_person").value
+      // ) {
+      //   document.getElementById("contact_person").value = result.contact_person;
+      // }
+      // if (
+      //   result.phone_number &&
+      //   !document.getElementById("contact_phone").value
+      // ) {
+      //   document.getElementById("contact_phone").value = result.phone_number;
+      // }
     };
 
     dropdown.appendChild(item);
