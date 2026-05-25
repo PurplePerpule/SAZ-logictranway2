@@ -661,7 +661,6 @@ function updateVehicleSelection() {
   document.getElementById("selectedVehiclesCount").textContent =
     `${selectedVehicles.length} выбрано`;
 
-  // Обновляем состояние чекбокса "Выбрать все"
   const selectAll = document.getElementById("selectAllVehicles");
   if (selectAll) {
     const total = document.querySelectorAll(".vehicle-checkbox").length;
@@ -1244,6 +1243,9 @@ async function cleanupEmptyOrders() {
 
 async function loadVehicles() {
   try {
+    // 1. Сохраняем ID выбранных машин перед обновлением
+    const checkedIds = new Set(selectedVehicles);
+
     const res = await fetch(`${API}/vehicles`, {
       headers: {
         "Content-Type": "application/json",
@@ -1252,11 +1254,26 @@ async function loadVehicles() {
     });
     const vehicles = await res.json();
     renderVehicles(vehicles);
-    // Сбрасываем выделение после загрузки
+
+    // 2. Восстанавливаем выделение
     selectedVehicles = [];
+    const checkboxes = document.querySelectorAll(".vehicle-checkbox");
+    checkboxes.forEach((cb) => {
+      if (checkedIds.has(parseInt(cb.value))) {
+        cb.checked = true;
+        selectedVehicles.push(parseInt(cb.value));
+      }
+    });
+
+    // 3. Обновляем интерфейс (счётчик, чекбокс "выбрать все")
     updateVehicleSelection();
-    if (document.getElementById("selectAllVehicles")) {
-      document.getElementById("selectAllVehicles").checked = false;
+
+    // 4. Сбрасываем глобальный чекбокс "Выбрать все", если выделены не все
+    const selectAll = document.getElementById("selectAllVehicles");
+    if (selectAll) {
+      selectAll.checked =
+        selectedVehicles.length === vehicles.length && vehicles.length > 0;
+      selectAll.indeterminate = false;
     }
   } catch (err) {
     console.error(err);
