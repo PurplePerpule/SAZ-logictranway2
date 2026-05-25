@@ -1360,6 +1360,7 @@ function renderVehicles(vehicles) {
             <td>${v.garage_number}</td>
             <td>${v.brand}</td>
             <td>${v.driver}</td>
+            <td>${v.gos_number}</td>
             <td>${v.tent_type === "open" ? "Открытый" : "Закрытый"}</td>
             <td><span class="status-badge ${v.status === "free" ? "status-free" : v.status === "in_repair" ? "status-repair" : "status-busy"}">
                 ${v.status === "free" ? "Свободна" : v.status === "in_repair" ? "В ремонте" : "Занята"}
@@ -1377,7 +1378,7 @@ function renderVehicles(vehicles) {
     vehicles.forEach((v) => {
       const opt = document.createElement("option");
       opt.value = v.id;
-      opt.textContent = `${v.garage_number} — ${v.brand} (${v.driver})`;
+      opt.textContent = `${v.garage_number} — ${v.brand} (${v.driver})[${v.gos_number}]`;
       sel.appendChild(opt);
     });
     if (selected) sel.value = selected;
