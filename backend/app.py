@@ -13,7 +13,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 from threading import Thread
 from collections import defaultdict
 from math import radians, sin, cos, sqrt, atan2
-
+from flask_migrate import Migrate
 
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 import pdfkit
@@ -39,7 +39,6 @@ app.config["SECRET_KEY"] = "c639183901c409352be3d01c521c7694"
 
 login_manager = LoginManager(app)
 login_manager.login_view = "login"
-
 @login_manager.user_loader
 def load_user(user_id):
     try:
@@ -64,7 +63,7 @@ order_cargo = db.Table(
     db.Column("cargo_id", db.Integer, db.ForeignKey("cargo.id"), primary_key=True),
 )
 
-
+migrate = Migrate(app, db)
 class Cargo(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
@@ -261,6 +260,7 @@ class User(db.Model, UserMixin):
 
 class Location(db.Model):
     __tablename__ = "location"
+    is_base = db.Column(db.Boolean, default=False)
     id = db.Column(db.Integer, primary_key=True)
     company_name = db.Column(db.String(200), nullable=False)  # Название компании
     address = db.Column(db.String(500), nullable=False)       # Полный адрес
@@ -1670,50 +1670,99 @@ def print_route_sheet(order_id):
     if not order.vehicle:
         return jsonify({"error": "Нет назначенной машины"}), 400
 
-    # Получаем все адреса из грузов
-    all_addresses = []
+    # --- Базовая локация (САЗ) ---
+    base_location = Location.query.filter_by(is_base=True).first()
+    if not base_location:
+        # fallback, если база не задана
+        base_location = Location(
+            company_name="САЗ",
+            address="Не указан",
+            contact_person="",
+            phone_number=""
+        )
+
+    # --- Собираем все уникальные адреса из грузов ---
+    all_addresses = set()
     for cargo in order.cargos:
-        all_addresses.append(cargo.departure)
-        all_addresses.append(cargo.destination)
+        all_addresses.add(cargo.departure)
+        all_addresses.add(cargo.destination)
 
-    # Удаляем дубликаты
-    all_addresses = list(set(all_addresses))
-
-    # Получаем соответствующие записи из Location
+    # --- Получаем объекты Location для каждого адреса ---
     locations = Location.query.filter(Location.address.in_(all_addresses)).all()
+    addr_to_location = {loc.address: loc for loc in locations}
 
-    # Создаем словарь для быстрого доступа: адрес -> company_name
-    address_to_company = {}
-    for loc in locations:
-        address_to_company[loc.address] = loc.company_name
+    # --- Формируем упорядоченный список остановок ---
+    route_stops = [base_location]                     # начало – САЗ
+    visited = set()
+    # добавляем все точки в порядке их появления в грузах, избегая дублей и базы
+    for cargo in order.cargos:
+        for addr in (cargo.departure, cargo.destination):
+            if addr != base_location.address and addr not in visited:
+                loc = addr_to_location.get(addr)
+                if loc:
+                    route_stops.append(loc)
+                else:
+                    route_stops.append(Location(
+                        company_name=addr,
+                        address=addr,
+                        contact_person="",
+                        phone_number=""
+                    ))
+                visited.add(addr)
+    route_stops.append(base_location)                 # конец – САЗ
 
-    # Формируем HTML для маршрутного листа
+    # --- Формируем HTML-таблицу ---
     created_date = order.created_at.strftime("%d.%m.%Y") if order.created_at else datetime.now().strftime("%d.%m.%Y")
     today_date = datetime.now().strftime("%d.%m.%Y")
 
-    # Таблица грузов - каждый груз отдельной строкой
-    cargo_table = ""
-    cargo_counter = 1
+    def stop_row(stop, idx, weight="-"):
+        """Генерирует строку таблицы для остановки (база или промежуточная точка)"""
+        contact = f"{stop.contact_person or ''} {stop.phone_number or ''}".strip()
+        return f"""
+        <tr>
+            <td class="col-no">{idx}</td>
+            <td class="col-request" contenteditable="true">{stop.company_name or stop.address}</td>
+            <td class="col-address" contenteditable="true">{stop.address}</td>
+            <td class="col-time"><input type="time" class="editable" value="09:00"></td>
+            <td class="col-weight">{weight}</td>
+            <td class="col-phone">{contact}</td>
+            <td class="col-comment" contenteditable="true"></td>
+            <td class="col-note" contenteditable="true"></td>
+        </tr>
+        """
 
+    rows = []
+    row_idx = 1
+
+    # База (начало)
+    rows.append(stop_row(base_location, row_idx, "—"))
+    row_idx += 1
+
+    # Грузы (каждый экземпляр груза отдельной строкой)
     for cargo in order.cargos:
-        for i in range(cargo.quantity):  # Каждую единицу груза отдельной строкой
-            # Получаем название компании для destination
-            company_name = address_to_company.get(cargo.destination, cargo.destination)
-
-            cargo_table += f"""
+        for i in range(cargo.quantity):
+            dest_loc = addr_to_location.get(cargo.destination)
+            if not dest_loc:
+                dest_loc = Location(company_name=cargo.destination, address=cargo.destination)
+            contact = f"{dest_loc.contact_person or ''} {dest_loc.phone_number or ''}".strip()
+            rows.append(f"""
             <tr>
-                <td class="col-no">{cargo_counter}</td>
-                <td class="col-request" contenteditable="true" class="editable">{company_name}</td>
-                <td class="col-address" contenteditable="true" class="editable">{cargo.destination}</td>
+                <td class="col-no">{row_idx}</td>
+                <td class="col-request" contenteditable="true">{dest_loc.company_name}</td>
+                <td class="col-address" contenteditable="true">{cargo.destination}</td>
                 <td class="col-time"><input type="time" class="editable" value="09:00"></td>
-                <td class="col-work"><input type="text" class="editable" value="1 ч"></td>
                 <td class="col-weight">{cargo.weight} кг</td>
-                <td class="col-phone"><input type="text" class="editable" value="{order.phone_number or ''}"></td>
-                <td class="col-comment" contenteditable="true" class="editable"></td>
-                <td class="col-note" contenteditable="true" class="editable"></td>
+                <td class="col-phone">{contact}</td>
+                <td class="col-comment" contenteditable="true"></td>
+                <td class="col-note" contenteditable="true"></td>
             </tr>
-            """
-            cargo_counter += 1
+            """)
+            row_idx += 1
+
+    # База (конец)
+    rows.append(stop_row(base_location, row_idx, "—"))
+
+    cargo_table = "\n".join(rows)
 
     route_sheet_html = f"""<!DOCTYPE html>
 <html>
@@ -2086,307 +2135,306 @@ def print_route_sheet(order_id):
             }}
         }}
     </style>
-</head>
-<body>
-    <div class="print-container">
-        <div class="driver-info">
-            <div>
-                <strong>Водитель:</strong>
-                <span class="editable" contenteditable="true" style="border-bottom: 1px solid #000; min-width: 200px; display: inline-block; margin-left: 5px;">
-                    {order.vehicle.driver}
-                </span>
-                <br>
-                <strong>Машина:</strong> {order.vehicle.brand} ({order.vehicle.gos_number})
+    </head>
+    <body>
+        <div class="print-container">
+            <div class="driver-info">
+                <div>
+                    <strong>Водитель:</strong>
+                    <span class="editable" contenteditable="true" style="border-bottom: 1px solid #000; min-width: 200px; display: inline-block; margin-left: 5px;">
+                        {order.vehicle.driver}
+                    </span>
+                    <br>
+                    <strong>Машина:</strong> {order.vehicle.brand} ({order.vehicle.gos_number})
+                </div>
             </div>
-        </div>
 
-        <div>
-            Маршрутный лист от {today_date} к путевому листу № _____
-            <span class="editable underline" contenteditable="false" style="min-width: 60px; display: inline-block; text-align: left;"></span>
-        </div>
+            <div>
+                Маршрутный лист от {today_date} к путевому листу № _____
+                <span class="editable underline" contenteditable="false" style="min-width: 60px; display: inline-block; text-align: left;"></span>
+            </div>
 
-        <table>
-            <thead>
-                <tr>
-                    <th class="col-no">№</th>
-                    <th class="col-request">Заявка (Компания)</th>
-                    <th class="col-address">Адрес</th>
-                    <th class="col-time">Планируемое прибытие</th>
-                    <th class="col-work">Время работы</th>
-                    <th class="col-weight">Вес кг.</th>
-                    <th class="col-phone">Телефон</th>
-                    <th class="col-comment">Комментарий</th>
-                    <th class="col-note">Примечание</th>
-                </tr>
-            </thead>
-            <tbody>
-                {cargo_table}
-            </tbody>
-        </table>
+            <table>
+                <thead>
+                    <tr>
+                        <th class="col-no">№</th>
+                        <th class="col-request">Заявка (Компания)</th>
+                        <th class="col-address">Адрес</th>
+                        <th class="col-time">Планируемое прибытие</th>
+                        <th class="col-weight">Вес кг.</th>
+                        <th class="col-phone">Телефон</th>
+                        <th class="col-comment">Комментарий</th>
+                        <th class="col-note">Примечание</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {cargo_table}
+                </tbody>
+            </table>
 
-        <div class="signatures">
-            <div class="signature-line">
-                <div class="signature-block">
-                    <div class="signature-name">Логистик выдал:</div>
-                    <div class="signature-name">Водитель сдал:</div>
+            <div class="signatures">
+                <div class="signature-line">
+                    <div class="signature-block">
+                        <div class="signature-name">Логистик выдал:</div>
+                        <div class="signature-name">Водитель сдал:</div>
+                    </div>
                 </div>
             </div>
         </div>
-    </div>
 
-    <div class="controls no-print">
-        <button class="btn btn-edit" onclick="enableEditing()">✏️ Редактировать</button>
-        <button class="btn btn-save" onclick="saveChanges()" style="display:none;">💾 Сохранить</button>
-        <button class="btn btn-print" onclick="printOptimized()">🖨️ Печать</button>
-        <button class="btn btn-close" onclick="window.close()">✕ Закрыть</button>
-    </div>
+        <div class="controls no-print">
+            <button class="btn btn-edit" onclick="enableEditing()">✏️ Редактировать</button>
+            <button class="btn btn-save" onclick="saveChanges()" style="display:none;">💾 Сохранить</button>
+            <button class="btn btn-print" onclick="printOptimized()">🖨️ Печать</button>
+            <button class="btn btn-close" onclick="window.close()">✕ Закрыть</button>
+        </div>
 
-    <script>
-        let isEditing = false;
-        let savedData = null;
+        <script>
+            let isEditing = false;
+            let savedData = null;
 
-        // Функция для подготовки к печати
-        function prepareForPrint() {{
-            // Сохраняем текущие значения полей ввода
-            document.querySelectorAll('input').forEach(input => {{
-                if (input.type === 'time' || input.type === 'text') {{
-                    // Создаем текстовый span с значением
-                    const span = document.createElement('span');
-                    span.textContent = input.value;
-                    span.style.display = 'inline-block';
-                    span.style.width = '100%';
-                    span.style.textAlign = 'center';
+            // Функция для подготовки к печати
+            function prepareForPrint() {{
+                // Сохраняем текущие значения полей ввода
+                document.querySelectorAll('input').forEach(input => {{
+                    if (input.type === 'time' || input.type === 'text') {{
+                        // Создаем текстовый span с значением
+                        const span = document.createElement('span');
+                        span.textContent = input.value;
+                        span.style.display = 'inline-block';
+                        span.style.width = '100%';
+                        span.style.textAlign = 'center';
 
-                    // Заменяем input на span
-                    input.parentNode.insertBefore(span, input);
-                    input.style.display = 'none';
-                }}
-            }});
+                        // Заменяем input на span
+                        input.parentNode.insertBefore(span, input);
+                        input.style.display = 'none';
+                    }}
+                }});
 
-            // Убираем все атрибуты contenteditable
-            document.querySelectorAll('[contenteditable="true"]').forEach(el => {{
-                el.setAttribute('contenteditable', 'false');
-            }});
+                // Убираем все атрибуты contenteditable
+                document.querySelectorAll('[contenteditable="true"]').forEach(el => {{
+                    el.setAttribute('contenteditable', 'false');
+                }});
 
-            // Принудительный reflow
-            document.body.offsetHeight;
+                // Принудительный reflow
+                document.body.offsetHeight;
 
-            return true;
-        }}
-
-        // Функция для восстановления после печати
-        function restoreAfterPrint() {{
-            // Восстанавливаем поля ввода
-            document.querySelectorAll('td').forEach(td => {{
-                const span = td.querySelector('span');
-                const hiddenInput = td.querySelector('input[style*="display: none"]');
-
-                if (span && hiddenInput) {{
-                    // Возвращаем значение в input
-                    hiddenInput.value = span.textContent;
-                    hiddenInput.style.display = '';
-                    span.remove();
-                }}
-            }});
-
-            // Восстанавливаем режим редактирования если нужно
-            if (isEditing) {{
-                enableEditing();
-            }}
-        }}
-
-        // Оптимизированная печать
-        function printOptimized() {{
-            // Сохраняем изменения если в режиме редактирования
-            if (isEditing) {{
-                saveChanges();
+                return true;
             }}
 
-            // Подготавливаем документ к печати
-            prepareForPrint();
+            // Функция для восстановления после печати
+            function restoreAfterPrint() {{
+                // Восстанавливаем поля ввода
+                document.querySelectorAll('td').forEach(td => {{
+                    const span = td.querySelector('span');
+                    const hiddenInput = td.querySelector('input[style*="display: none"]');
 
-            // Запускаем печать с небольшой задержкой
-            setTimeout(() => {{
-                window.print();
+                    if (span && hiddenInput) {{
+                        // Возвращаем значение в input
+                        hiddenInput.value = span.textContent;
+                        hiddenInput.style.display = '';
+                        span.remove();
+                    }}
+                }});
 
-                // Восстанавливаем после печати
-                setTimeout(restoreAfterPrint, 500);
-            }}, 200);
-        }}
-
-        function enableEditing() {{
-            isEditing = true;
-
-            document.querySelectorAll('.editable').forEach(el => {{
-                el.setAttribute('contenteditable', 'true');
-                if (el.style) el.style.backgroundColor = '#ffffcc';
-            }});
-
-            document.querySelectorAll('input').forEach(input => {{
-                input.removeAttribute('readonly');
-                if (input.style) {{
-                    input.style.backgroundColor = '#ffffcc';
-                    input.style.border = '1px dashed #999';
+                // Восстанавливаем режим редактирования если нужно
+                if (isEditing) {{
+                    enableEditing();
                 }}
-            }});
+            }}
 
-            document.querySelector('.btn-edit').style.display = 'none';
-            document.querySelector('.btn-save').style.display = 'inline-block';
-        }}
-
-        function disableEditing() {{
-            isEditing = false;
-
-            document.querySelectorAll('.editable').forEach(el => {{
-                el.setAttribute('contenteditable', 'false');
-                if (el.style) el.style.backgroundColor = '';
-            }});
-
-            document.querySelectorAll('input').forEach(input => {{
-                input.setAttribute('readonly', true);
-                if (input.style) {{
-                    input.style.backgroundColor = 'transparent';
-                    input.style.border = 'none';
+            // Оптимизированная печать
+            function printOptimized() {{
+                // Сохраняем изменения если в режиме редактирования
+                if (isEditing) {{
+                    saveChanges();
                 }}
-            }});
 
-            document.querySelector('.btn-edit').style.display = 'inline-block';
-            document.querySelector('.btn-save').style.display = 'none';
-        }}
+                // Подготавливаем документ к печати
+                prepareForPrint();
 
-        function saveChanges() {{
-            const changes = {{
-                driver: document.querySelector('.driver-info .editable')?.textContent || '',
-                vehicle: document.querySelector('.driver-info .editable:last-child')?.textContent || '',
-                waybill_number: document.querySelector('.document-title .editable')?.textContent || '',
-                cargo_items: []
+                // Запускаем печать с небольшой задержкой
+                setTimeout(() => {{
+                    window.print();
+
+                    // Восстанавливаем после печати
+                    setTimeout(restoreAfterPrint, 500);
+                }}, 200);
+            }}
+
+            function enableEditing() {{
+                isEditing = true;
+
+                document.querySelectorAll('.editable').forEach(el => {{
+                    el.setAttribute('contenteditable', 'true');
+                    if (el.style) el.style.backgroundColor = '#ffffcc';
+                }});
+
+                document.querySelectorAll('input').forEach(input => {{
+                    input.removeAttribute('readonly');
+                    if (input.style) {{
+                        input.style.backgroundColor = '#ffffcc';
+                        input.style.border = '1px dashed #999';
+                    }}
+                }});
+
+                document.querySelector('.btn-edit').style.display = 'none';
+                document.querySelector('.btn-save').style.display = 'inline-block';
+            }}
+
+            function disableEditing() {{
+                isEditing = false;
+
+                document.querySelectorAll('.editable').forEach(el => {{
+                    el.setAttribute('contenteditable', 'false');
+                    if (el.style) el.style.backgroundColor = '';
+                }});
+
+                document.querySelectorAll('input').forEach(input => {{
+                    input.setAttribute('readonly', true);
+                    if (input.style) {{
+                        input.style.backgroundColor = 'transparent';
+                        input.style.border = 'none';
+                    }}
+                }});
+
+                document.querySelector('.btn-edit').style.display = 'inline-block';
+                document.querySelector('.btn-save').style.display = 'none';
+            }}
+
+            function saveChanges() {{
+                const changes = {{
+                    driver: document.querySelector('.driver-info .editable')?.textContent || '',
+                    vehicle: document.querySelector('.driver-info .editable:last-child')?.textContent || '',
+                    waybill_number: document.querySelector('.document-title .editable')?.textContent || '',
+                    cargo_items: []
+                }};
+
+                document.querySelectorAll('tbody tr').forEach((row) => {{
+                    const cells = row.querySelectorAll('td');
+                    if (cells.length >= 9) {{
+                        changes.cargo_items.push({{
+                            company: cells[1]?.textContent || '',
+                            address: cells[2]?.textContent || '',
+                            arrival_time: cells[3]?.querySelector('input')?.value || '',
+                            work_time: cells[4]?.querySelector('input')?.value || '',
+                            phone: cells[6]?.querySelector('input')?.value || '',
+                            comment: cells[7]?.textContent || '',
+                            note: cells[8]?.textContent || ''
+                        }});
+                    }}
+                }});
+
+                savedData = changes;
+                localStorage.setItem('route_sheet_{order.id}', JSON.stringify(changes));
+
+                disableEditing();
+                showNotification('Изменения сохранены');
+            }}
+
+            function showNotification(message) {{
+                const notification = document.createElement('div');
+                notification.textContent = message;
+                notification.style.cssText = `
+                    position: fixed;
+                    top: 20px;
+                    right: 20px;
+                    background: #4caf50;
+                    color: white;
+                    padding: 15px 20px;
+                    border-radius: 4px;
+                    z-index: 1001;
+                    animation: slideIn 0.3s ease-out;
+                    font-weight: bold;
+                    box-shadow: 0 3px 10px rgba(0,0,0,0.2);
+                `;
+
+                document.body.appendChild(notification);
+
+                setTimeout(() => {{
+                    notification.style.animation = 'slideOut 0.3s ease-out';
+                    setTimeout(() => notification.remove(), 300);
+                }}, 2000);
+            }}
+
+            // Добавляем стили для анимации
+            const style = document.createElement('style');
+            style.textContent = `
+                @keyframes slideIn {{
+                    from {{ transform: translateX(100%); opacity: 0; }}
+                    to {{ transform: translateX(0); opacity: 1; }}
+                }}
+                @keyframes slideOut {{
+                    from {{ transform: translateX(0); opacity: 1; }}
+                    to {{ transform: translateX(100%); opacity: 0; }}
+                }}
+            `;
+            document.head.appendChild(style);
+
+            // Загружаем сохраненные данные
+            window.onload = function() {{
+                const saved = localStorage.getItem('route_sheet_{order.id}');
+                if (saved) {{
+                    savedData = JSON.parse(saved);
+
+                    // Восстанавливаем водителя
+                    const driverSpan = document.querySelector('.driver-info .editable:first-child');
+                    if (driverSpan && savedData.driver) {{
+                        driverSpan.textContent = savedData.driver;
+                    }}
+
+                    // Восстанавливаем данные таблицы
+                    if (savedData.cargo_items && savedData.cargo_items.length > 0) {{
+                        document.querySelectorAll('tbody tr').forEach((row, index) => {{
+                            if (savedData.cargo_items[index]) {{
+                                const cells = row.querySelectorAll('td');
+                                const item = savedData.cargo_items[index];
+
+                                // Компания
+                                if (cells[1]) cells[1].textContent = item.company || '';
+                                // Адрес
+                                if (cells[2]) cells[2].textContent = item.address || '';
+
+                                const arrivalInput = cells[3]?.querySelector('input');
+                                const workInput = cells[4]?.querySelector('input');
+                                const phoneInput = cells[6]?.querySelector('input');
+
+                                if (arrivalInput) arrivalInput.value = item.arrival_time || '';
+                                if (workInput) workInput.value = item.work_time || '';
+                                if (phoneInput) phoneInput.value = item.phone || '';
+                                if (cells[7]) cells[7].textContent = item.comment || '';
+                                if (cells[8]) cells[8].textContent = item.note || '';
+                            }}
+                        }});
+                    }}
+                }}
+
+                // Автоматически подгоняем размер шрифта для таблицы
+                const table = document.querySelector('table');
+                if (table) {{
+                    const rowCount = table.querySelectorAll('tbody tr').length;
+                    if (rowCount > 12) {{
+                        table.style.fontSize = '12px';
+                    }}
+                }}
             }};
 
-            document.querySelectorAll('tbody tr').forEach((row) => {{
-                const cells = row.querySelectorAll('td');
-                if (cells.length >= 9) {{
-                    changes.cargo_items.push({{
-                        company: cells[1]?.textContent || '',
-                        address: cells[2]?.textContent || '',
-                        arrival_time: cells[3]?.querySelector('input')?.value || '',
-                        work_time: cells[4]?.querySelector('input')?.value || '',
-                        phone: cells[6]?.querySelector('input')?.value || '',
-                        comment: cells[7]?.textContent || '',
-                        note: cells[8]?.textContent || ''
-                    }});
+            // Горячие клавиши
+            document.addEventListener('keydown', function(event) {{
+                if ((event.ctrlKey || event.metaKey) && event.key === 's') {{
+                    event.preventDefault();
+                    if (isEditing) saveChanges();
+                }}
+
+                if ((event.ctrlKey || event.metaKey) && event.key === 'p') {{
+                    event.preventDefault();
+                    printOptimized();
+                }}
+
+                if (event.key === 'Escape' && isEditing) {{
+                    disableEditing();
                 }}
             }});
-
-            savedData = changes;
-            localStorage.setItem('route_sheet_{order.id}', JSON.stringify(changes));
-
-            disableEditing();
-            showNotification('Изменения сохранены');
-        }}
-
-        function showNotification(message) {{
-            const notification = document.createElement('div');
-            notification.textContent = message;
-            notification.style.cssText = `
-                position: fixed;
-                top: 20px;
-                right: 20px;
-                background: #4caf50;
-                color: white;
-                padding: 15px 20px;
-                border-radius: 4px;
-                z-index: 1001;
-                animation: slideIn 0.3s ease-out;
-                font-weight: bold;
-                box-shadow: 0 3px 10px rgba(0,0,0,0.2);
-            `;
-
-            document.body.appendChild(notification);
-
-            setTimeout(() => {{
-                notification.style.animation = 'slideOut 0.3s ease-out';
-                setTimeout(() => notification.remove(), 300);
-            }}, 2000);
-        }}
-
-        // Добавляем стили для анимации
-        const style = document.createElement('style');
-        style.textContent = `
-            @keyframes slideIn {{
-                from {{ transform: translateX(100%); opacity: 0; }}
-                to {{ transform: translateX(0); opacity: 1; }}
-            }}
-            @keyframes slideOut {{
-                from {{ transform: translateX(0); opacity: 1; }}
-                to {{ transform: translateX(100%); opacity: 0; }}
-            }}
-        `;
-        document.head.appendChild(style);
-
-        // Загружаем сохраненные данные
-        window.onload = function() {{
-            const saved = localStorage.getItem('route_sheet_{order.id}');
-            if (saved) {{
-                savedData = JSON.parse(saved);
-
-                // Восстанавливаем водителя
-                const driverSpan = document.querySelector('.driver-info .editable:first-child');
-                if (driverSpan && savedData.driver) {{
-                    driverSpan.textContent = savedData.driver;
-                }}
-
-                // Восстанавливаем данные таблицы
-                if (savedData.cargo_items && savedData.cargo_items.length > 0) {{
-                    document.querySelectorAll('tbody tr').forEach((row, index) => {{
-                        if (savedData.cargo_items[index]) {{
-                            const cells = row.querySelectorAll('td');
-                            const item = savedData.cargo_items[index];
-
-                            // Компания
-                            if (cells[1]) cells[1].textContent = item.company || '';
-                            // Адрес
-                            if (cells[2]) cells[2].textContent = item.address || '';
-
-                            const arrivalInput = cells[3]?.querySelector('input');
-                            const workInput = cells[4]?.querySelector('input');
-                            const phoneInput = cells[6]?.querySelector('input');
-
-                            if (arrivalInput) arrivalInput.value = item.arrival_time || '';
-                            if (workInput) workInput.value = item.work_time || '';
-                            if (phoneInput) phoneInput.value = item.phone || '';
-                            if (cells[7]) cells[7].textContent = item.comment || '';
-                            if (cells[8]) cells[8].textContent = item.note || '';
-                        }}
-                    }});
-                }}
-            }}
-
-            // Автоматически подгоняем размер шрифта для таблицы
-            const table = document.querySelector('table');
-            if (table) {{
-                const rowCount = table.querySelectorAll('tbody tr').length;
-                if (rowCount > 12) {{
-                    table.style.fontSize = '12px';
-                }}
-            }}
-        }};
-
-        // Горячие клавиши
-        document.addEventListener('keydown', function(event) {{
-            if ((event.ctrlKey || event.metaKey) && event.key === 's') {{
-                event.preventDefault();
-                if (isEditing) saveChanges();
-            }}
-
-            if ((event.ctrlKey || event.metaKey) && event.key === 'p') {{
-                event.preventDefault();
-                printOptimized();
-            }}
-
-            if (event.key === 'Escape' && isEditing) {{
-                disableEditing();
-            }}
-        }});
     </script>
 </body>
 </html>"""

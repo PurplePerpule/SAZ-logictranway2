@@ -89,6 +89,7 @@ async function loadHistory() {
 
     // Строим URL с параметрами
     const params = new URLSearchParams();
+
     Object.entries(filters).forEach(([key, value]) => {
       if (value) params.append(key, value);
     });
@@ -2178,6 +2179,9 @@ function renderLocationsTable(locations) {
 
     // Определяем типы
     let types = [];
+    if (location.is_base) {
+      types.push('<span style="color:green; font-weight:bold;">🏭 База</span>');
+    }
     if (location.is_departure) types.push("Отправление");
     if (location.is_destination) types.push("Назначение");
 
@@ -2199,6 +2203,7 @@ function renderLocationsTable(locations) {
 
 // Открыть модальное окно добавления
 function openAddLocationModal() {
+  document.getElementById("locationIsBase").checked = false;
   document.getElementById("locationModalTitle").textContent = "Добавить адрес";
   document.getElementById("editLocationId").value = "";
   document.getElementById("locationCompany").value = "";
@@ -2227,6 +2232,7 @@ async function saveLocation() {
   const data = {
     company_name: document.getElementById("locationCompany").value.trim(),
     address: document.getElementById("locationAddress").value.trim(),
+    is_base: document.getElementById("locationIsBase").checked,
     is_departure: document.getElementById("locationIsDeparture").checked,
     is_destination: document.getElementById("locationIsDestination").checked,
     contact_person:
@@ -2272,7 +2278,7 @@ async function saveLocation() {
 async function editLocation(id) {
   const location = currentLocations.find((loc) => loc.id === id);
   if (!location) return;
-
+  document.getElementById("locationIsBase").checked = location.is_base || false;
   document.getElementById("locationModalTitle").textContent =
     "Редактировать адрес";
   document.getElementById("editLocationId").value = location.id;
